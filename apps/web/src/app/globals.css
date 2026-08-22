@@ -95,6 +95,86 @@
   }
 }
 
+@keyframes ration-connection-vertical {
+  from {
+    top: -0.125rem;
+    opacity: 0;
+  }
+  35%,
+  70% {
+    opacity: 1;
+  }
+  to {
+    top: calc(100% - 0.125rem);
+    opacity: 0;
+  }
+}
+
+@keyframes ration-connection-horizontal {
+  from {
+    left: -0.125rem;
+    opacity: 0;
+  }
+  35%,
+  70% {
+    opacity: 1;
+  }
+  to {
+    left: calc(100% - 0.125rem);
+    opacity: 0;
+  }
+}
+
+@keyframes ration-sequence-pulse {
+  0%,
+  24%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(247 79 6 / 0);
+  }
+  10% {
+    box-shadow: 0 0 0 0.35rem rgb(247 79 6 / 0.12);
+  }
+}
+
+.agent-connection {
+  position: relative;
+  background: rgb(247 79 6 / 0.38);
+}
+
+.agent-connection::after {
+  position: absolute;
+  top: -0.125rem;
+  left: -0.125rem;
+  width: 0.3125rem;
+  height: 0.3125rem;
+  border-radius: 9999px;
+  background: var(--ration-orange);
+  content: "";
+  opacity: 0;
+}
+
+.agents-visible .agent-connection::after {
+  animation: ration-connection-vertical 2.4s var(--ration-ease) infinite;
+}
+
+.agents-visible .agent-connection-horizontal::after {
+  animation-name: ration-connection-horizontal;
+}
+
+.agents-visible .agent-sequence-ration,
+.agents-visible .agent-sequence-sandbox,
+.agents-visible .agent-sequence-agent {
+  animation: ration-sequence-pulse 4.8s var(--ration-ease) infinite;
+}
+
+.agents-visible .agent-sequence-sandbox {
+  animation-delay: 1.6s;
+}
+
+.agents-visible .agent-sequence-agent {
+  animation-delay: 3.2s;
+}
+
 * {
   border-color: var(--ration-border);
 }

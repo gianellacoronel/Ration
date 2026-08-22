@@ -186,6 +186,7 @@ export function HowItWorks() {
 
   return (
     <section
+      id="how-it-works"
       className="border-t border-white/10 bg-ration-dark px-gutter py-section text-white"
       aria-labelledby="how-it-works-title"
     >

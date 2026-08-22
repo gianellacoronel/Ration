@@ -21,3 +21,11 @@ export const getStartedHref = "#get-started";
 
 // Replace this placeholder when the public repository is available.
 export const githubHref = "#";
+
+export const footerNavigation = [
+  ...navigation,
+  {
+    label: "GitHub",
+    href: githubHref,
+  },
+] as const;

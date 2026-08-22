@@ -156,6 +156,7 @@ export function ProblemSection() {
   return (
     <section
       ref={sectionRef}
+      id="product"
       className="border-t border-ration-dark/10 px-gutter py-section"
       aria-labelledby="problem-title"
     >

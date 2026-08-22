@@ -1,111 +1,147 @@
 # Ration
 
-Ration creates, discovers, resolves, and explicitly funds isolated disposable wallets using the official Tether Wallet Development Kit (WDK) CLI.
+Ration creates disposable, budgeted financial sandboxes for AI agents using the official Tether Wallet Development Kit (WDK) CLI.
 
-The funding slice only moves a user-specified USD₮ amount from an existing unlocked WDK wallet into an existing Ration wallet. It does not create and fund in one command, automate budgets or balances, sweep or delete wallets, run agents, or implement spending policies.
+This iteration establishes two product concepts:
 
-WDK and WDK CLI are currently beta software. `npm audit` reports known vulnerabilities in the CLI's pinned transitive wallet dependencies; use appropriate test networks and amounts, and update to patched official releases as Tether publishes them.
+- **Treasury:** the user's persistent wallet. It only funds sandboxes and must never be exposed to an agent.
+- **Sandbox:** a temporary Ration wallet with a bounded test USD₮ balance. Agent execution is not implemented yet.
+
+WDK remains the wallet source of truth. Ration does not implement wallet storage and never captures, parses, logs, or persists a seed phrase or passphrase.
 
 ## Requirements
 
 - Node.js 22.18.0 or newer
 - npm
 
-The repository includes an `.nvmrc` matching the Node.js version used by the current official WDK CLI repository.
+The repository includes an `.nvmrc` matching the Node.js version required by the installed WDK CLI.
 
-## Setup
+## Getting Started
 
 ```bash
 npm install
 npm link
-ration create
+
+ration setup
+# Fund the displayed treasury address with test USD₮.
+
+ration create --budget 5
 ration list
-ration unlock <wallet>
-ration address <wallet> --network sepolia
-wdk wallet unlock --name <source-wallet>
-ration fund <wallet> --from <source-wallet> --amount 10 --network sepolia
 ```
 
-For Ration, `sepolia` means the ERC-4337 Smart Account configuration on the Sepolia chain. Ration maps it internally to WDK's `smart-account-sepolia` adapter so agents only need USDT: the configured paymaster charges the network fee in USDT instead of requiring Sepolia ETH.
+`ration setup` creates a persistent WDK wallet named `rationtreasury`. WDK owns the complete interactive security flow, including passphrase prompts, seed generation, encryption, display, and storage. Ration inherits the terminal directly and cannot read those secrets.
 
-Ration gives each wallet a unique name such as `ration-20260822T143012123-a1b2c3d4`, then runs the official command:
+After WDK creates the treasury, Ration asks WDK to unlock it briefly, resolves its receiving address, and locks it. Running setup again detects and reuses the existing treasury instead of creating a duplicate.
+
+Passphrases are the default. For throwaway environments, `ration setup --insecure` creates the treasury with an empty passphrase and no prompts; anyone with access to that machine can spend its funds.
+
+## Creating Sandboxes
 
 ```bash
-wdk wallet create --name <generated-name>
+ration create --budget 5
 ```
 
-WDK owns the complete interactive security flow: passphrase prompts, seed generation and display, encryption, and storage. Ration inherits the terminal directly and never captures, parses, logs, or stores the seed phrase or passphrase.
+Ration performs the following workflow:
 
-List the Ration wallets recognized by WDK:
+1. Verifies that setup is complete.
+2. Briefly unlocks the treasury through WDK and verifies its test USD₮ balance.
+3. Creates a collision-checked sandbox with a short name such as `rationa31f`.
+4. Briefly unlocks the sandbox through WDK and resolves its receiving address.
+5. Runs WDK's structured transfer dry run.
+6. Displays the budget and estimated fee, then asks for explicit confirmation.
+7. Broadcasts only after an explicit `y` or `yes`.
+8. Locks both the sandbox and treasury before reporting success.
+
+Each sandbox is an independent WDK wallet, so WDK presents its official passphrase and seed backup flow during creation. Ration does not receive either secret.
+
+If confirmation is declined, the newly created sandbox remains empty and locked. Ration does not automatically delete wallets in this iteration.
+
+## Listing
 
 ```bash
 ration list
-ration list --network sepolia
 ```
 
-Ration uses the official `wdk wallet list --json` output as its source of truth and shows only wallets matching its generated naming convention, together with WDK's lock and session state. It also reads `wdk network info --json` and labels the selected account type. For unlocked wallets it resolves the Smart Account address and retrieves its registered USDT balance through WDK's JSON output. `ration list` uses Sepolia by default and displays the ERC-4337 Smart Account, not the seed's separate EOA. Locked wallets remain listed without an address or balance because WDK requires an unlocked session to derive the account.
+Default output shows the treasury and sandboxes with their lock status. It never unlocks a wallet and never asks for a passphrase:
 
-Get the receiving address for a listed Ration wallet:
+```text
+Treasury
+  Balance   —
+
+Sandboxes
+
+SANDBOX      STATUS
+rationa31f   locked
+rationc912   locked
+
+Locked wallets hide their balance and address. Run 'ration list --balances' to see them.
+```
+
+Balances require an unlocked WDK session, so they are explicit opt-in. `ration list --balances` invokes WDK's official unlock flow for locked Ration wallets, reads their balances, and locks every inspected Ration wallet before returning. It ignores unrelated WDK wallets.
 
 ```bash
+ration list --balances
+```
+
+Use `ration list --verbose` to include receiving addresses (shown only for wallets that are already unlocked).
+
+## Advanced Commands
+
+These commands are not needed for the normal setup, create, and list workflow:
+
+```bash
+ration fund <sandbox> --amount 2
+ration unlock <sandbox>
 ration address <wallet> --network sepolia
+ration help --advanced
 ```
 
-Ration verifies the wallet against WDK's wallet list, then resolves `--network sepolia` through WDK's `smart-account-sepolia` adapter. WDK requires the wallet to be unlocked before deriving its Smart Account address. If needed, unlock it explicitly and retry:
+`fund` tops up an existing sandbox from `rationtreasury`. It uses the same dry-run, confirmation, and final locking behavior as sandbox creation. Source-wallet selection is intentionally not part of the Ration CLI.
+
+The advanced `unlock` command accepts sandboxes only. Ration never offers a command that leaves the treasury unlocked.
+
+## Security Model
+
+- Wallet creation and unlocking use the official interactive WDK CLI with inherited terminal I/O.
+- Ration only parses documented structured JSON from wallet listing, address, balance, lock, dry-run, and transfer commands.
+- Wallet seeds, passphrases, private keys, and EOA addresses are never captured or stored by Ration.
+- The treasury and sandbox are explicitly locked after creation, cancellation, or failure.
+- Interrupt signals stop active WDK children and allow Ration's lock cleanup to finish before exit.
+- A lock failure is reported as an error and prevents Ration from claiming successful completion.
+- Normal output uses only Ration concepts and receiving addresses.
+
+For the hackathon, Ration uses WDK's built-in Sepolia account configuration and registered test USD₮ token. Network adapter, account implementation, and fee-payment details stay behind the product UX.
+
+## Scope
+
+This version does not implement agent execution, MCP access, `ration run`, spending policies, x402, sweeping, disposal, or automatic wallet deletion.
+
+## Local Development
+
+Run without linking:
 
 ```bash
-ration unlock <wallet>
-ration address <wallet> --network sepolia
-```
-
-`ration unlock` verifies that the wallet belongs to Ration, then runs the official `wdk wallet unlock --name <wallet> --ttl 60` command with an inherited terminal. WDK owns the passphrase prompt and creates a 60-minute session.
-
-Fund an existing Ration wallet with the official USD₮ token registered for a network:
-
-```bash
-ration unlock <ration-wallet>
-wdk wallet unlock --name <source-wallet>
-ration fund <ration-wallet> --from <source-wallet> --amount 10 --network sepolia
-```
-
-Ration verifies both wallet names through `wdk wallet list --json`, resolves the destination Smart Account, and explicitly passes the source wallet to WDK. It first runs the equivalent of:
-
-```bash
-wdk send --wallet <source-wallet> --network smart-account-sepolia --to <resolved-address> --amount 10 --token USDT --dry-run --json
-```
-
-Ration displays the structured WDK preview, including the paymaster fee in USDT, and asks for confirmation. The source Smart Account must contain enough USDT for both the transfer amount and fee; it does not need ETH. Only an explicit `y` or `yes` runs the same command without `--dry-run`; Ration reports the `txHash` from WDK's structured result. The source wallet must already be unlocked through WDK, and the current WDK address flow also requires the destination Ration wallet to be unlocked. Ration never asks for or captures the source passphrase.
-
-Without linking the package, run the same flow locally with:
-
-```bash
-npm run ration -- create
+npm run ration -- setup
+npm run ration -- create --budget 5
 npm run ration -- list
-npm run ration -- unlock <wallet>
-npm run ration -- address <wallet> --network sepolia
-npm run ration -- fund <wallet> --from <source-wallet> --amount 10 --network sepolia
 ```
 
-Run official WDK CLI commands through the project-local installation:
+Run tests:
+
+```bash
+npm test
+```
+
+Run the project-local official WDK CLI directly:
 
 ```bash
 npm run wdk -- --help
 ```
 
-The official Tether WDK Agent Skill is installed for OpenCode under `.agents/skills/wdk` and tracked by `skills-lock.json`. Refresh it with:
-
-```bash
-npx skills update wdk --project --yes
-```
-
-## Implementation
-
-Ration starts the published `@tetherto/wdk-cli` executable as a separate process. Wallet creation and unlocking inherit the terminal; wallet listing, address lookup, transfer previews, and transfer results use WDK's JSON output and exit codes. Ration does not import WDK wallet internals or implement wallet storage, token contracts, transaction construction, signing, or broadcasting.
+WDK and WDK CLI are currently beta software. Use test networks and test amounts, and update to patched official releases as Tether publishes them.
 
 ## Official Sources
 
 - [WDK documentation](https://docs.wallet.tether.io/)
 - [WDK CLI repository](https://github.com/tetherto/wdk-cli)
 - [WDK core repository](https://github.com/tetherto/wdk)
-- [WDK examples](https://github.com/tetherto/wdk-examples)
-- [WDK Agent Skills](https://github.com/tetherto/wdk-agent-skills)

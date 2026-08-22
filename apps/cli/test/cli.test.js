@@ -8,6 +8,7 @@ import {
   WalletTransferError,
   WalletUnlockError,
   confirmTransfer,
+  createWdkOutputFilter,
   createWalletName,
   isRationWalletName,
   main,
@@ -72,6 +73,9 @@ test('maps the friendly Sepolia name to the configured account environment', () 
 
 test('delegates secret-bearing wallet creation directly to the official CLI terminal', async () => {
   const child = new EventEmitter()
+  child.stdout = new EventEmitter()
+  child.stdout.setEncoding = () => {}
+  child.stdin = { write: () => {} }
   let invocation
   const result = runWdkWalletCreate('rationtreasury', {
     wdkCliPath: '/wdk.mjs',
@@ -85,12 +89,15 @@ test('delegates secret-bearing wallet creation directly to the official CLI term
   assert.deepEqual(invocation, [
     process.execPath,
     ['/wdk.mjs', 'wallet', 'create', '--name', 'rationtreasury'],
-    { stdio: 'inherit' }
+    { stdio: ['inherit', 'pipe', 'inherit'] }
   ])
 })
 
 test('delegates secret-bearing unlock directly to the official CLI terminal', async () => {
   const child = new EventEmitter()
+  child.stdout = new EventEmitter()
+  child.stdout.setEncoding = () => {}
+  child.stdin = { write: () => {} }
   let invocation
   const result = runWdkWalletUnlock('rationtreasury', {
     wdkCliPath: '/wdk.mjs',
@@ -104,7 +111,23 @@ test('delegates secret-bearing unlock directly to the official CLI terminal', as
   assert.deepEqual(invocation, [
     process.execPath,
     ['/wdk.mjs', 'wallet', 'unlock', '--name', 'rationtreasury', '--ttl', '5'],
-    { stdio: 'inherit' }
+    { stdio: ['inherit', 'pipe', 'inherit'] }
+  ])
+})
+
+test('filters WDK session noise and its trailing blank from inherited output', () => {
+  const written = []
+  const filter = createWdkOutputFilter((line) => written.push(line))
+  filter("✔ Wallet 'rationtreasury' unlocked\n")
+  filter('\n')
+  filter('  Session locks after 5 minutes\n')
+  filter('  Run `wdk wallet lock --name rationtreasury` to end session\n')
+  filter('\n')
+  filter('Next output\n')
+  assert.deepEqual(written, [
+    "✔ Wallet 'rationtreasury' unlocked\n",
+    '\n',
+    'Next output\n'
   ])
 })
 

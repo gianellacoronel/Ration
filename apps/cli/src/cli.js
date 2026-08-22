@@ -141,23 +141,31 @@ function watchChild (child, ErrorType, resolve, reject) {
   })
 }
 
-function spawnInherited (args, ErrorType, options = {}) {
-  const spawnProcess = options.spawnProcess ?? spawn
-  const wdkCliPath = options.wdkCliPath ?? resolveWdkCliPath()
+const WDK_SESSION_NOISE = /(?:Session (?:locks after|timer reset|will not expire)|Run `wdk wallet lock )/
 
-  return new Promise((resolve, reject) => {
-    let child
-    try {
-      child = spawnProcess(process.execPath, [wdkCliPath, ...args], { stdio: 'inherit' })
-    } catch (error) {
-      reject(new WdkCliUnavailableError(`Could not start the WDK CLI: ${error.message}`))
-      return
+export function createWdkOutputFilter (write) {
+  let pending = ''
+  let suppressBlank = false
+  return (chunk) => {
+    pending += chunk
+    const lines = pending.split('\n')
+    pending = lines.pop()
+    for (const line of lines) {
+      if (WDK_SESSION_NOISE.test(line)) {
+        suppressBlank = true
+        continue
+      }
+      if (suppressBlank && line.trim() === '') {
+        suppressBlank = false
+        continue
+      }
+      suppressBlank = false
+      write(`${line}\n`)
     }
-    watchChild(child, ErrorType, resolve, reject)
-  })
+  }
 }
 
-function spawnWithEmptyPassphrase (args, ErrorType, promptsToAnswer, options = {}) {
+function spawnInteractive (args, ErrorType, promptsToAnswer, options = {}) {
   const spawnProcess = options.spawnProcess ?? spawn
   const wdkCliPath = options.wdkCliPath ?? resolveWdkCliPath()
 
@@ -165,16 +173,17 @@ function spawnWithEmptyPassphrase (args, ErrorType, promptsToAnswer, options = {
     let child
     try {
       child = spawnProcess(process.execPath, [wdkCliPath, ...args],
-        { stdio: ['pipe', 'pipe', 'inherit'] })
+        { stdio: [promptsToAnswer > 0 ? 'pipe' : 'inherit', 'pipe', 'inherit'] })
     } catch (error) {
       reject(new WdkCliUnavailableError(`Could not start the WDK CLI: ${error.message}`))
       return
     }
 
     let remaining = promptsToAnswer
+    const writeFiltered = createWdkOutputFilter((line) => process.stdout.write(line))
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk) => {
-      process.stdout.write(chunk)
+      writeFiltered(chunk)
       if (remaining > 0 && /assphrase/i.test(chunk)) {
         remaining -= 1
         setTimeout(() => { child.stdin.write('\n') }, 150)
@@ -239,10 +248,8 @@ function spawnJson (args, ErrorType, validate, options = {}) {
 
 export function runWdkWalletCreate (name, options = {}) {
   const { emptyPassphrase, ...rest } = options
-  if (emptyPassphrase) {
-    return spawnWithEmptyPassphrase(['wallet', 'create', '--name', name], WalletCreationError, 2, rest)
-  }
-  return spawnInherited(['wallet', 'create', '--name', name], WalletCreationError, rest)
+  return spawnInteractive(['wallet', 'create', '--name', name], WalletCreationError,
+    emptyPassphrase ? 2 : 0, rest)
 }
 
 export function runWdkWalletList (options = {}) {
@@ -259,10 +266,7 @@ export function runWdkWalletUnlock (name, options = {}) {
   const ttl = options.ttl ?? SESSION_TTL_MINUTES
   const args = ['wallet', 'unlock', '--name', name, '--ttl', String(ttl)]
   const { emptyPassphrase, ...rest } = options
-  if (emptyPassphrase) {
-    return spawnWithEmptyPassphrase(args, WalletUnlockError, 1, rest)
-  }
-  return spawnInherited(args, WalletUnlockError, rest)
+  return spawnInteractive(args, WalletUnlockError, emptyPassphrase ? 1 : 0, rest)
 }
 
 export function runWdkWalletLock (name, options = {}) {
@@ -725,7 +729,7 @@ function renderList (managed, details, { verbose, withBalances, style }, output)
   if (hints.length > 0) {
     output.log('')
     for (const [command, description] of hints) {
-      output.log(style.dim(`  ${command}   ${description}`))
+      output.log(`  ${command}   ${style.dim(description)}`)
     }
   }
 }

@@ -20,6 +20,7 @@ npm install
 npm link
 ration create
 ration list
+ration unlock <wallet>
 ration address <wallet> --network sepolia
 ```
 
@@ -48,14 +49,18 @@ ration address <wallet> --network sepolia
 Ration verifies the wallet against WDK's wallet list, then runs `wdk get address --wallet <wallet> --network sepolia --json`. WDK requires the wallet to be unlocked before deriving its address. If needed, unlock it explicitly and retry:
 
 ```bash
-npm run wdk -- wallet unlock --name <wallet>
+ration unlock <wallet>
+ration address <wallet> --network sepolia
 ```
+
+`ration unlock` verifies that the wallet belongs to Ration, then runs the official `wdk wallet unlock --name <wallet>` command with an inherited terminal. WDK owns the passphrase prompt and creates a session with its default five-minute TTL.
 
 Without linking the package, run the same flow locally with:
 
 ```bash
 npm run ration -- create
 npm run ration -- list
+npm run ration -- unlock <wallet>
 npm run ration -- address <wallet> --network sepolia
 ```
 

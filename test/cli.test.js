@@ -7,6 +7,7 @@ import {
   WalletAddressError,
   WalletCreationError,
   WalletListingError,
+  WalletUnlockError,
   WdkCliUnavailableError,
   createWalletName,
   isRationWalletName,
@@ -14,7 +15,8 @@ import {
   resolveWdkCliPath,
   runWdkGetAddress,
   runWdkWalletCreate,
-  runWdkWalletList
+  runWdkWalletList,
+  runWdkWalletUnlock
 } from '../src/cli.js'
 
 test('creates a valid, identifiable WDK wallet name', () => {
@@ -120,6 +122,40 @@ test('reports failed or invalid WDK wallet listings', async () => {
   invalidChild.stdout.end('not json')
   invalidChild.emit('close', 0, null)
   await assert.rejects(invalid, /unexpected wallet list/)
+})
+
+test('delegates unlocking to the official WDK command without capturing streams', async () => {
+  const child = new EventEmitter()
+  let invocation
+
+  const promise = runWdkWalletUnlock('ration-wallet', {
+    wdkCliPath: '/installed/wdk.mjs',
+    spawnProcess: (...args) => {
+      invocation = args
+      return child
+    }
+  })
+
+  child.emit('close', 0, null)
+  await promise
+
+  assert.deepEqual(invocation, [
+    process.execPath,
+    ['/installed/wdk.mjs', 'wallet', 'unlock', '--name', 'ration-wallet'],
+    { stdio: 'inherit' }
+  ])
+})
+
+test('reports a failed WDK unlock command', async () => {
+  const child = new EventEmitter()
+  const promise = runWdkWalletUnlock('ration-wallet', {
+    wdkCliPath: '/installed/wdk.mjs',
+    spawnProcess: () => child
+  })
+
+  child.emit('close', 1, null)
+
+  await assert.rejects(promise, WalletUnlockError)
 })
 
 test('gets an address from the official WDK command with an explicit wallet and network', async () => {
@@ -307,6 +343,63 @@ test('handles a WDK listing failure cleanly', async () => {
   assert.deepEqual(errors, ['Wallet listing failed. WDK exited with code 1.'])
 })
 
+test('unlocks only a wallet that belongs to Ration', async () => {
+  const lines = []
+  const wallet = 'ration-20260822T143012123-a1b2c3d4'
+  let unlockedWallet
+
+  const exitCode = await main(['unlock', wallet], {
+    output: {
+      log: (line) => lines.push(line),
+      error: (line) => lines.push(line)
+    },
+    runWdkWalletList: async () => [{ name: wallet }, { name: 'personal' }],
+    runWdkWalletUnlock: async (name) => { unlockedWallet = name }
+  })
+
+  assert.equal(exitCode, 0)
+  assert.equal(unlockedWallet, wallet)
+  assert.deepEqual(lines, [`Ration wallet '${wallet}' is unlocked for the WDK session.`])
+})
+
+test('does not unlock a non-Ration wallet', async () => {
+  const errors = []
+  let unlocked = false
+
+  const exitCode = await main(['unlock', 'personal'], {
+    output: {
+      log: () => {},
+      error: (line) => errors.push(line)
+    },
+    runWdkWalletList: async () => [{ name: 'personal' }],
+    runWdkWalletUnlock: async () => { unlocked = true }
+  })
+
+  assert.equal(exitCode, 1)
+  assert.equal(unlocked, false)
+  assert.deepEqual(errors, [
+    "Ration wallet 'personal' was not found.",
+    'Run `ration list` to see available Ration wallets.'
+  ])
+})
+
+test('reports a failed wallet unlock cleanly', async () => {
+  const errors = []
+  const wallet = 'ration-20260822T143012123-a1b2c3d4'
+
+  const exitCode = await main(['unlock', wallet], {
+    output: {
+      log: () => {},
+      error: (line) => errors.push(line)
+    },
+    runWdkWalletList: async () => [{ name: wallet }],
+    runWdkWalletUnlock: async () => { throw new WalletUnlockError(1, null) }
+  })
+
+  assert.equal(exitCode, 1)
+  assert.deepEqual(errors, ['Wallet unlock failed. WDK exited with code 1.'])
+})
+
 test('prints the WDK-derived address and network for a Ration wallet', async () => {
   const lines = []
   const wallet = 'ration-20260822T143012123-a1b2c3d4'
@@ -371,7 +464,7 @@ test('explains the WDK unlock requirement for address lookup', async () => {
   assert.equal(exitCode, 1)
   assert.deepEqual(errors, [
     `Ration wallet '${wallet}' must be unlocked before WDK can derive its address.`,
-    `Run \`npm run wdk -- wallet unlock --name ${wallet}\`, then try again.`
+    `Run \`ration unlock ${wallet}\`, then try again.`
   ])
 })
 
@@ -405,4 +498,17 @@ test('requires the complete address command syntax', async () => {
 
   assert.equal(exitCode, 1)
   assert.deepEqual(errors, ['Usage: ration address <wallet> --network <network>'])
+})
+
+test('requires a wallet for the unlock command', async () => {
+  const errors = []
+  const exitCode = await main(['unlock'], {
+    output: {
+      log: () => {},
+      error: (line) => errors.push(line)
+    }
+  })
+
+  assert.equal(exitCode, 1)
+  assert.deepEqual(errors, ['Usage: ration unlock <wallet>'])
 })

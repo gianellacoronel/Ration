@@ -26,6 +26,8 @@ wdk wallet unlock --name <source-wallet>
 ration fund <wallet> --from <source-wallet> --amount 10 --network sepolia
 ```
 
+For Ration, `sepolia` means the ERC-4337 Smart Account configuration on the Sepolia chain. Ration maps it internally to WDK's `smart-account-sepolia` adapter so agents only need USDT: the configured paymaster charges the network fee in USDT instead of requiring Sepolia ETH.
+
 Ration gives each wallet a unique name such as `ration-20260822T143012123-a1b2c3d4`, then runs the official command:
 
 ```bash
@@ -38,10 +40,10 @@ List the Ration wallets recognized by WDK:
 
 ```bash
 ration list
-ration list --network ethereum
+ration list --network sepolia
 ```
 
-Ration uses the official `wdk wallet list --json` output as its source of truth and shows only wallets matching its generated naming convention, together with WDK's lock and session state. For unlocked wallets it also resolves the address and retrieves the registered USDT balance through WDK's JSON output. `ration list` uses Sepolia by default; pass `--network <network>` to select another network. Locked wallets remain listed without an address or balance because WDK requires an unlocked session to derive the account.
+Ration uses the official `wdk wallet list --json` output as its source of truth and shows only wallets matching its generated naming convention, together with WDK's lock and session state. It also reads `wdk network info --json` and labels the selected account type. For unlocked wallets it resolves the Smart Account address and retrieves its registered USDT balance through WDK's JSON output. `ration list` uses Sepolia by default and displays the ERC-4337 Smart Account, not the seed's separate EOA. Locked wallets remain listed without an address or balance because WDK requires an unlocked session to derive the account.
 
 Get the receiving address for a listed Ration wallet:
 
@@ -49,7 +51,7 @@ Get the receiving address for a listed Ration wallet:
 ration address <wallet> --network sepolia
 ```
 
-Ration verifies the wallet against WDK's wallet list, then runs `wdk get address --wallet <wallet> --network sepolia --json`. WDK requires the wallet to be unlocked before deriving its address. If needed, unlock it explicitly and retry:
+Ration verifies the wallet against WDK's wallet list, then resolves `--network sepolia` through WDK's `smart-account-sepolia` adapter. WDK requires the wallet to be unlocked before deriving its Smart Account address. If needed, unlock it explicitly and retry:
 
 ```bash
 ration unlock <wallet>
@@ -66,13 +68,13 @@ wdk wallet unlock --name <source-wallet>
 ration fund <ration-wallet> --from <source-wallet> --amount 10 --network sepolia
 ```
 
-Ration verifies both wallet names through `wdk wallet list --json`, resolves the destination with the existing address flow, and explicitly passes the source wallet to WDK. It first runs:
+Ration verifies both wallet names through `wdk wallet list --json`, resolves the destination Smart Account, and explicitly passes the source wallet to WDK. It first runs the equivalent of:
 
 ```bash
-wdk send --wallet <source-wallet> --network sepolia --to <resolved-address> --amount 10 --token USDT --dry-run --json
+wdk send --wallet <source-wallet> --network smart-account-sepolia --to <resolved-address> --amount 10 --token USDT --dry-run --json
 ```
 
-Ration displays the structured WDK preview, including fee information, and asks for confirmation. Only an explicit `y` or `yes` runs the same command without `--dry-run`; Ration reports the `txHash` from WDK's structured result. The source wallet must already be unlocked through WDK, and the current WDK address flow also requires the destination Ration wallet to be unlocked. Ration never asks for or captures the source passphrase.
+Ration displays the structured WDK preview, including the paymaster fee in USDT, and asks for confirmation. The source Smart Account must contain enough USDT for both the transfer amount and fee; it does not need ETH. Only an explicit `y` or `yes` runs the same command without `--dry-run`; Ration reports the `txHash` from WDK's structured result. The source wallet must already be unlocked through WDK, and the current WDK address flow also requires the destination Ration wallet to be unlocked. Ration never asks for or captures the source passphrase.
 
 Without linking the package, run the same flow locally with:
 

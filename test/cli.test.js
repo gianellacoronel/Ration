@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 
 import {
+  NetworkInfoError,
   WalletAddressError,
   WalletBalanceError,
   WalletCreationError,
@@ -16,8 +17,10 @@ import {
   isRationWalletName,
   main,
   resolveWdkCliPath,
+  resolveWdkNetwork,
   runWdkGetAddress,
   runWdkGetUsdtBalance,
+  runWdkNetworkInfo,
   runWdkTransfer,
   runWdkWalletCreate,
   runWdkWalletList,
@@ -33,6 +36,12 @@ test('creates a valid, identifiable WDK wallet name', () => {
   assert.equal(name, 'ration-20260822T143012123-a1b2c3d4')
   assert.match(name, /^[a-zA-Z0-9_-]+$/)
   assert.equal(isRationWalletName(name), true)
+})
+
+test('uses the ERC-4337 Smart Account adapter for Sepolia', () => {
+  assert.equal(resolveWdkNetwork('sepolia'), 'smart-account-sepolia')
+  assert.equal(resolveWdkNetwork('smart-account-sepolia'), 'smart-account-sepolia')
+  assert.equal(resolveWdkNetwork('ethereum'), 'ethereum')
 })
 
 test('delegates creation to the official WDK command without capturing streams', async () => {
@@ -127,6 +136,54 @@ test('reports failed or invalid WDK wallet listings', async () => {
   invalidChild.stdout.end('not json')
   invalidChild.emit('close', 0, null)
   await assert.rejects(invalid, /unexpected wallet list/)
+})
+
+test('gets the account module from the official WDK network information', async () => {
+  const child = new EventEmitter()
+  child.stdout = new PassThrough()
+  child.stderr = new PassThrough()
+  let invocation
+
+  const promise = runWdkNetworkInfo('smart-account-sepolia', {
+    wdkCliPath: '/installed/wdk.mjs',
+    spawnProcess: (...args) => {
+      invocation = args
+      return child
+    }
+  })
+
+  child.stdout.end(JSON.stringify({
+    name: 'smart-account-sepolia',
+    module: '@tetherto/wdk-wallet-evm-erc-4337'
+  }))
+  child.stderr.end()
+  child.emit('close', 0, null)
+
+  assert.deepEqual(await promise, {
+    name: 'smart-account-sepolia',
+    module: '@tetherto/wdk-wallet-evm-erc-4337'
+  })
+  assert.deepEqual(invocation, [
+    process.execPath,
+    ['/installed/wdk.mjs', 'network', 'info', '--network', 'smart-account-sepolia', '--json'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  ])
+})
+
+test('reports invalid WDK network information', async () => {
+  const child = new EventEmitter()
+  child.stdout = new PassThrough()
+  child.stderr = new PassThrough()
+  const promise = runWdkNetworkInfo('sepolia', {
+    wdkCliPath: '/installed/wdk.mjs',
+    spawnProcess: () => child
+  })
+
+  child.stdout.end('{}')
+  child.stderr.end()
+  child.emit('close', 0, null)
+
+  await assert.rejects(promise, NetworkInfoError)
 })
 
 test('delegates unlocking to the official WDK command without capturing streams', async () => {
@@ -541,6 +598,7 @@ test('lists only wallets created with the Ration naming convention', async () =>
 
   const exitCode = await main(['list'], {
     output,
+    runWdkNetworkInfo: async () => ({ module: '@tetherto/wdk-wallet-evm-erc-4337' }),
     runWdkWalletList: async () => [
       { name: 'ration-20260822T143012123-a1b2c3d4', unlocked: false },
       { name: 'personal', unlocked: true, ttlMs: 300000, ttlRemaining: 240000 },
@@ -565,10 +623,10 @@ test('lists only wallets created with the Ration naming convention', async () =>
 
   assert.equal(exitCode, 0)
   assert.deepEqual(addressRequests, [
-    ['ration-20260822T143013456-0123abcd', 'sepolia']
+    ['ration-20260822T143013456-0123abcd', 'smart-account-sepolia']
   ])
   assert.deepEqual(lines, [
-    'Ration wallets (sepolia):',
+    'Ration wallets (sepolia, Smart Account (ERC-4337)):',
     '',
     '  ration-20260822T143012123-a1b2c3d4',
     '    Address  -',
@@ -595,6 +653,7 @@ test('shows unlimited WDK sessions without exposing wallet details', async () =>
       ttlMs: 0,
       ttlRemaining: 0
     }],
+    runWdkNetworkInfo: async () => ({ module: '@tetherto/wdk-wallet-evm-erc-4337' }),
     runWdkGetAddress: async (wallet, network) => ({
       network,
       address: '0xabcdef'
@@ -608,7 +667,7 @@ test('shows unlimited WDK sessions without exposing wallet details', async () =>
 
   assert.equal(exitCode, 0)
   assert.deepEqual(lines, [
-    'Ration wallets (sepolia):',
+    'Ration wallets (sepolia, Smart Account (ERC-4337)):',
     '',
     '  ration-20260822T143012123-a1b2c3d4',
     '    Address  0xabcdef',
@@ -617,12 +676,12 @@ test('shows unlimited WDK sessions without exposing wallet details', async () =>
   ])
 })
 
-test('lists unlocked addresses for an explicitly selected network', async () => {
+test('identifies smart accounts for an explicitly selected network', async () => {
   const lines = []
   const wallet = 'ration-20260822T143012123-a1b2c3d4'
   let addressRequest
 
-  const exitCode = await main(['list', '--network', 'ethereum'], {
+  const exitCode = await main(['list', '--network', 'smart-account-sepolia'], {
     output: {
       log: (line) => lines.push(line),
       error: (line) => lines.push(line)
@@ -633,9 +692,10 @@ test('lists unlocked addresses for an explicitly selected network', async () => 
       ttlMs: 3600000,
       ttlRemaining: 3540000
     }],
+    runWdkNetworkInfo: async () => ({ module: '@tetherto/wdk-wallet-evm-erc-4337' }),
     runWdkGetAddress: async (...args) => {
       addressRequest = args
-      return { network: 'ethereum', address: '0xethereum' }
+      return { network: 'smart-account-sepolia', address: '0xsmartaccount' }
     },
     runWdkGetUsdtBalance: async (wallet, network) => ({
       network,
@@ -645,12 +705,12 @@ test('lists unlocked addresses for an explicitly selected network', async () => 
   })
 
   assert.equal(exitCode, 0)
-  assert.deepEqual(addressRequest, [wallet, 'ethereum'])
+  assert.deepEqual(addressRequest, [wallet, 'smart-account-sepolia'])
   assert.deepEqual(lines, [
-    'Ration wallets (ethereum):',
+    'Ration wallets (smart-account-sepolia, Smart Account (ERC-4337)):',
     '',
     `  ${wallet}`,
-    '    Address  0xethereum',
+    '    Address  0xsmartaccount',
     '    Balance  42 USDT',
     '    Status   Unlocked (59 min remaining)'
   ])
@@ -754,14 +814,15 @@ test('prints the WDK-derived address and network for a Ration wallet', async () 
     runWdkWalletList: async () => [{ name: wallet }],
     runWdkGetAddress: async (...args) => {
       addressRequest = args
-      return { network: 'sepolia', index: 0, address: '0x1234567890abcdef' }
+      return { network: 'smart-account-sepolia', index: 0, address: '0x1234567890abcdef' }
     }
   })
 
   assert.equal(exitCode, 0)
-  assert.deepEqual(addressRequest, [wallet, 'sepolia'])
+  assert.deepEqual(addressRequest, [wallet, 'smart-account-sepolia'])
   assert.deepEqual(lines, [
     'Network: sepolia',
+    'Account: Smart Account (ERC-4337)',
     'Address: 0x1234567890abcdef'
   ])
 })
@@ -881,26 +942,26 @@ test('funds a resolved Ration address only after an official dry run and explici
     ],
     runWdkGetAddress: async (name, network) => {
       assert.equal(name, wallet)
-      assert.equal(network, 'sepolia')
+      assert.equal(network, 'smart-account-sepolia')
       return { network, address: destination }
     },
     runWdkTransfer: async (input) => {
       transfers.push(input)
       if (input.dryRun) {
         return {
-          network: 'sepolia',
+          network: 'smart-account-sepolia',
           to: destination,
           amountFormatted: '12.5 USDT',
           amountUsd: 12.5,
           token: '0xd077A400968890Eacc75cdc901F0356c943e4fDb',
           tokenSymbol: 'USDT',
-          estimatedFee: '100000000000000',
-          estimatedFeeFormatted: '0.0001 ETH',
-          estimatedFeeUsd: 0.25
+          estimatedFee: '100000',
+          estimatedFeeFormatted: '0.0000000000001 ETH',
+          estimatedFeeUsd: 0.00000000025
         }
       }
       return {
-        network: 'sepolia',
+        network: 'smart-account-sepolia',
         txHash: '0xtransaction',
         from: '0xsource',
         to: destination,
@@ -920,14 +981,14 @@ test('funds a resolved Ration address only after an official dry run and explici
   assert.deepEqual(transfers, [
     {
       sourceWallet: 'treasury',
-      network: 'sepolia',
+      network: 'smart-account-sepolia',
       to: destination,
       amount: '12.50',
       dryRun: true
     },
     {
       sourceWallet: 'treasury',
-      network: 'sepolia',
+      network: 'smart-account-sepolia',
       to: destination,
       amount: '12.50',
       dryRun: false
@@ -939,9 +1000,11 @@ test('funds a resolved Ration address only after an official dry run and explici
     `  Destination Ration wallet: ${wallet}`,
     `  Destination address: ${destination}`,
     '  Network: sepolia',
+    '  Account: Smart Account (ERC-4337)',
+    '  Gas payment: USDT via paymaster',
     '  Amount: 12.5 USDT (~$12.50)',
     '  Token: USDT (0xd077A400968890Eacc75cdc901F0356c943e4fDb)',
-    '  Estimated fee: 0.0001 ETH (~$0.25)',
+    '  Estimated fee: 0.1 USDT (~$0.10)',
     'USD₮ transfer broadcast through WDK.',
     'Transaction ID: 0xtransaction'
   ])
@@ -963,11 +1026,12 @@ test('does not broadcast a funding transfer when confirmation is declined', asyn
       { name: wallet, unlocked: true },
       { name: 'treasury', unlocked: true }
     ],
-    runWdkGetAddress: async () => ({ network: 'sepolia', address: '0xdestination' }),
-    runWdkTransfer: async () => {
+    runWdkGetAddress: async (name, network) => ({ network, address: '0xdestination' }),
+    runWdkTransfer: async (input) => {
+      assert.equal(input.network, 'smart-account-sepolia')
       transferCalls++
       return {
-        network: 'sepolia',
+        network: 'smart-account-sepolia',
         to: '0xdestination',
         amountFormatted: '1 USDT',
         tokenSymbol: 'USDT',
@@ -1084,7 +1148,7 @@ test('reports structured WDK funding dry-run failures cleanly', async () => {
   const wallet = 'ration-20260822T143012123-a1b2c3d4'
   const cases = [
     ['INVALID_AMOUNT', "Amount 'bad' is not a valid positive USD₮ amount for WDK."],
-    ['INSUFFICIENT_FUNDS', "Source WDK wallet 'treasury' has insufficient funds for the USD₮ transfer and network fee."],
+    ['INSUFFICIENT_FUNDS', "Source WDK wallet 'treasury' needs enough USDT for both the transfer and paymaster fee.\nRun `ration list --network sepolia` to check its Smart Account balance."],
     ['NETWORK_NOT_SUPPORTED', "Network 'sepolia' is not supported by the installed WDK CLI."],
     ['TOKEN_NOT_SUPPORTED', "The official USDT token is not registered for network 'sepolia'."],
     ['NETWORK_ERROR', 'WDK dry run failed. RPC unavailable.']
@@ -1110,8 +1174,41 @@ test('reports structured WDK funding dry-run failures cleanly', async () => {
     })
 
     assert.equal(exitCode, 1)
-    assert.deepEqual(errors, [expected])
+    assert.deepEqual(errors, expected.split('\n'))
   }
+})
+
+test('explains a missing paymaster token balance without dumping provider internals', async () => {
+  const errors = []
+  const wallet = 'ration-20260822T143012123-a1b2c3d4'
+  const exitCode = await main([
+    'fund', wallet, '--from', 'treasury', '--amount', '1', '--network', 'sepolia'
+  ], {
+    output: {
+      log: () => {},
+      error: (line) => errors.push(line)
+    },
+    runWdkWalletList: async () => [
+      { name: wallet, unlocked: true },
+      { name: 'treasury', unlocked: true }
+    ],
+    runWdkGetAddress: async (name, network) => ({ network, address: '0xdestination' }),
+    runWdkTransfer: async () => {
+      throw new WalletTransferError(
+        'dry-run',
+        1,
+        null,
+        'Transaction creation failed. Details: validator: token balance lower than the required allowance.',
+        'TRANSACTION_CREATION_FAILED'
+      )
+    }
+  })
+
+  assert.equal(exitCode, 1)
+  assert.deepEqual(errors, [
+    "Source WDK wallet 'treasury' needs enough USDT for both the transfer and paymaster fee.",
+    'Run `ration list --network sepolia` to check its Smart Account balance.'
+  ])
 })
 
 test('reports a structured WDK broadcast failure without claiming success', async () => {
@@ -1130,12 +1227,13 @@ test('reports a structured WDK broadcast failure without claiming success', asyn
       { name: wallet, unlocked: true },
       { name: 'treasury', unlocked: true }
     ],
-    runWdkGetAddress: async () => ({ network: 'sepolia', address: '0xdestination' }),
-    runWdkTransfer: async () => {
+    runWdkGetAddress: async (name, network) => ({ network, address: '0xdestination' }),
+    runWdkTransfer: async (input) => {
+      assert.equal(input.network, 'smart-account-sepolia')
       transferCalls++
       if (transferCalls === 1) {
         return {
-          network: 'sepolia',
+          network: 'smart-account-sepolia',
           to: '0xdestination',
           amountFormatted: '1 USDT',
           tokenSymbol: 'USDT',

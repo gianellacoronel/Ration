@@ -20,6 +20,7 @@ const FUND_USAGE = 'Usage: ration fund <wallet> --from <source-wallet> --amount 
 const DEFAULT_LIST_NETWORK = 'sepolia'
 const FUND_TOKEN = 'USDT'
 const RATION_SESSION_TTL_MINUTES = 60
+const SEPOLIA_SMART_ACCOUNT_NETWORK = 'smart-account-sepolia'
 
 export class WdkCliUnavailableError extends Error {}
 
@@ -36,6 +37,15 @@ export class WalletListingError extends Error {
     super(message ?? (signal ? `WDK was stopped by ${signal}.` : `WDK exited with code ${code}.`))
     this.code = code
     this.signal = signal
+  }
+}
+
+export class NetworkInfoError extends Error {
+  constructor (exitCode, signal, message, wdkCode) {
+    super(message ?? (signal ? `WDK was stopped by ${signal}.` : `WDK exited with code ${exitCode}.`))
+    this.exitCode = exitCode
+    this.signal = signal
+    this.wdkCode = wdkCode
   }
 }
 
@@ -82,6 +92,10 @@ export function createWalletName (now = new Date(), id = randomUUID()) {
 
 export function isRationWalletName (name) {
   return /^ration-\d{8}T\d{9}-[0-9a-f]{8}$/.test(name)
+}
+
+export function resolveWdkNetwork (network) {
+  return network === 'sepolia' ? SEPOLIA_SMART_ACCOUNT_NETWORK : network
 }
 
 export function resolveWdkCliPath (resolve = import.meta.resolve) {
@@ -165,6 +179,57 @@ export function runWdkWalletList (options = {}) {
       } catch {
         reject(new WalletListingError(code, signal, 'WDK returned an unexpected wallet list.'))
       }
+    })
+  })
+}
+
+export function runWdkNetworkInfo (network, options = {}) {
+  const spawnProcess = options.spawnProcess ?? spawn
+  const wdkCliPath = options.wdkCliPath ?? resolveWdkCliPath()
+
+  return new Promise((resolve, reject) => {
+    let child
+
+    try {
+      child = spawnProcess(
+        process.execPath,
+        [wdkCliPath, 'network', 'info', '--network', network, '--json'],
+        { stdio: ['ignore', 'pipe', 'pipe'] }
+      )
+    } catch (error) {
+      reject(new WdkCliUnavailableError(`Could not start the WDK CLI: ${error.message}`))
+      return
+    }
+
+    let stdout = ''
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.resume()
+
+    child.once('error', (error) => {
+      reject(new WdkCliUnavailableError(`Could not start the WDK CLI: ${error.message}`))
+    })
+    child.once('close', (exitCode, signal) => {
+      let result
+      try {
+        result = JSON.parse(stdout)
+      } catch {
+        result = null
+      }
+
+      if (exitCode !== 0) {
+        const message = typeof result?.error === 'string' ? result.error : undefined
+        const wdkCode = typeof result?.code === 'string' ? result.code : undefined
+        reject(new NetworkInfoError(exitCode, signal, message, wdkCode))
+        return
+      }
+
+      if (result?.name !== network || typeof result?.module !== 'string') {
+        reject(new NetworkInfoError(exitCode, signal, 'WDK returned unexpected network information.'))
+        return
+      }
+
+      resolve(result)
     })
   })
 }
@@ -485,6 +550,7 @@ export async function main (args, options = {}) {
     }
 
     const network = args[2] ?? DEFAULT_LIST_NETWORK
+    const wdkNetwork = resolveWdkNetwork(network)
     let wallets
     try {
       wallets = await (options.runWdkWalletList ?? runWdkWalletList)()
@@ -509,13 +575,42 @@ export async function main (args, options = {}) {
       return 0
     }
 
+    let networkInfo
+    try {
+      networkInfo = await (options.runWdkNetworkInfo ?? runWdkNetworkInfo)(wdkNetwork)
+    } catch (error) {
+      if (error instanceof WdkCliUnavailableError) {
+        output.error('Ration could not find or start the official WDK CLI.')
+        output.error('Run `npm install` to install @tetherto/wdk-cli, then try again.')
+        return 1
+      }
+
+      if (error instanceof NetworkInfoError) {
+        if (error.wdkCode === 'NETWORK_NOT_SUPPORTED') {
+          output.error(`Network '${network}' is not supported by the installed WDK CLI.`)
+        } else {
+          output.error(`Could not inspect network '${network}'. ${error.message}`)
+        }
+        return error.signal === 'SIGINT' ? 130 : 1
+      }
+
+      throw error
+    }
+
+    let accountType = 'Standard wallet'
+    if (networkInfo.module === '@tetherto/wdk-wallet-evm') {
+      accountType = 'EOA'
+    } else if (networkInfo.module === '@tetherto/wdk-wallet-evm-erc-4337') {
+      accountType = 'Smart Account (ERC-4337)'
+    }
+
     const addresses = new Map()
     const balances = new Map()
     for (const wallet of rationWallets) {
       if (!wallet.unlocked) continue
 
       try {
-        const result = await (options.runWdkGetAddress ?? runWdkGetAddress)(wallet.name, network)
+        const result = await (options.runWdkGetAddress ?? runWdkGetAddress)(wallet.name, wdkNetwork)
         addresses.set(wallet.name, result.address)
       } catch (error) {
         if (error instanceof WdkCliUnavailableError) {
@@ -540,7 +635,7 @@ export async function main (args, options = {}) {
       }
 
       try {
-        const result = await (options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance)(wallet.name, network)
+        const result = await (options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance)(wallet.name, wdkNetwork)
         balances.set(wallet.name, result.formatted)
       } catch (error) {
         if (error instanceof WdkCliUnavailableError) {
@@ -567,7 +662,7 @@ export async function main (args, options = {}) {
       }
     }
 
-    output.log(`Ration wallets (${network}):`)
+    output.log(`Ration wallets (${network}, ${accountType}):`)
     for (const wallet of rationWallets) {
       let status = wallet.unlocked ? 'Unlocked' : 'Locked'
       if (wallet.unlocked && wallet.ttlMs === 0) {
@@ -649,6 +744,7 @@ export async function main (args, options = {}) {
 
     const wallet = args[1]
     const network = args[3]
+    const wdkNetwork = resolveWdkNetwork(network)
     let wallets
     try {
       wallets = await (options.runWdkWalletList ?? runWdkWalletList)()
@@ -678,7 +774,7 @@ export async function main (args, options = {}) {
 
     let result
     try {
-      result = await (options.runWdkGetAddress ?? runWdkGetAddress)(wallet, network)
+      result = await (options.runWdkGetAddress ?? runWdkGetAddress)(wallet, wdkNetwork)
     } catch (error) {
       if (error instanceof WdkCliUnavailableError) {
         output.error('Ration could not find or start the official WDK CLI.')
@@ -701,7 +797,10 @@ export async function main (args, options = {}) {
       throw error
     }
 
-    output.log(`Network: ${result.network}`)
+    output.log(`Network: ${network}`)
+    if (wdkNetwork === SEPOLIA_SMART_ACCOUNT_NETWORK) {
+      output.log('Account: Smart Account (ERC-4337)')
+    }
     output.log(`Address: ${result.address}`)
     return 0
   }
@@ -712,6 +811,8 @@ export async function main (args, options = {}) {
       output.error(FUND_USAGE)
       return 1
     }
+    const wdkNetwork = resolveWdkNetwork(fund.network)
+    const usesUsdtPaymaster = wdkNetwork === SEPOLIA_SMART_ACCOUNT_NETWORK
 
     let wallets
     try {
@@ -758,7 +859,7 @@ export async function main (args, options = {}) {
 
     let addressResult
     try {
-      addressResult = await (options.runWdkGetAddress ?? runWdkGetAddress)(fund.wallet, fund.network)
+      addressResult = await (options.runWdkGetAddress ?? runWdkGetAddress)(fund.wallet, wdkNetwork)
     } catch (error) {
       if (error instanceof WdkCliUnavailableError) {
         output.error('Ration could not find or start the official WDK CLI.')
@@ -783,7 +884,7 @@ export async function main (args, options = {}) {
 
     const transfer = {
       sourceWallet: fund.sourceWallet,
-      network: fund.network,
+      network: wdkNetwork,
       to: addressResult.address,
       amount: fund.amount,
       dryRun: true
@@ -806,8 +907,17 @@ export async function main (args, options = {}) {
           output.error(`Unlock it through WDK with \`wdk wallet unlock --name ${fund.sourceWallet}\`, then try again.`)
         } else if (error.wdkCode === 'KEY_NOT_FOUND') {
           output.error(`Source WDK wallet '${fund.sourceWallet}' was not found.`)
-        } else if (error.wdkCode === 'INSUFFICIENT_BALANCE' || error.wdkCode === 'INSUFFICIENT_FUNDS') {
-          output.error(`Source WDK wallet '${fund.sourceWallet}' has insufficient funds for the USD₮ transfer and network fee.`)
+        } else if (
+          error.wdkCode === 'INSUFFICIENT_BALANCE' ||
+          error.wdkCode === 'INSUFFICIENT_FUNDS' ||
+          (usesUsdtPaymaster && /token balance lower/i.test(error.message))
+        ) {
+          if (usesUsdtPaymaster) {
+            output.error(`Source WDK wallet '${fund.sourceWallet}' needs enough USDT for both the transfer and paymaster fee.`)
+            output.error(`Run \`ration list --network ${fund.network}\` to check its Smart Account balance.`)
+          } else {
+            output.error(`Source WDK wallet '${fund.sourceWallet}' has insufficient funds for the USD₮ transfer and network fee.`)
+          }
         } else if (error.wdkCode === 'NETWORK_NOT_SUPPORTED') {
           output.error(`Network '${fund.network}' is not supported by the installed WDK CLI.`)
         } else if (error.wdkCode === 'TOKEN_NOT_SUPPORTED' || error.wdkCode === 'INVALID_TOKEN') {
@@ -825,13 +935,26 @@ export async function main (args, options = {}) {
     output.log(`  Source wallet: ${fund.sourceWallet}`)
     output.log(`  Destination Ration wallet: ${fund.wallet}`)
     output.log(`  Destination address: ${addressResult.address}`)
-    output.log(`  Network: ${preview.network}`)
+    output.log(`  Network: ${fund.network}`)
+    if (usesUsdtPaymaster) {
+      output.log('  Account: Smart Account (ERC-4337)')
+      output.log('  Gas payment: USDT via paymaster')
+    }
     let amountLine = `  Amount: ${preview.amountFormatted}`
     if (typeof preview.amountUsd === 'number') amountLine += ` (~$${preview.amountUsd.toFixed(2)})`
     output.log(amountLine)
     output.log(`  Token: ${preview.tokenSymbol}${preview.token ? ` (${preview.token})` : ''}`)
-    let feeLine = `  Estimated fee: ${preview.estimatedFeeFormatted}`
-    if (typeof preview.estimatedFeeUsd === 'number') feeLine += ` (~$${preview.estimatedFeeUsd.toFixed(2)})`
+    let feeLine
+    if (usesUsdtPaymaster) {
+      const paddedFee = preview.estimatedFee.padStart(7, '0')
+      const integerFee = paddedFee.slice(0, -6)
+      const fractionalFee = paddedFee.slice(-6).replace(/0+$/, '')
+      const formattedFee = `${integerFee}${fractionalFee ? `.${fractionalFee}` : ''}`
+      feeLine = `  Estimated fee: ${formattedFee} USDT (~$${Number(formattedFee).toFixed(2)})`
+    } else {
+      feeLine = `  Estimated fee: ${preview.estimatedFeeFormatted}`
+      if (typeof preview.estimatedFeeUsd === 'number') feeLine += ` (~$${preview.estimatedFeeUsd.toFixed(2)})`
+    }
     output.log(feeLine)
 
     const confirmed = await (options.confirmTransfer ?? confirmTransfer)()
@@ -855,7 +978,11 @@ export async function main (args, options = {}) {
           output.error(`Source WDK wallet '${fund.sourceWallet}' is no longer unlocked.`)
           output.error(`Unlock it through WDK with \`wdk wallet unlock --name ${fund.sourceWallet}\`, then try again.`)
         } else if (error.wdkCode === 'INSUFFICIENT_BALANCE' || error.wdkCode === 'INSUFFICIENT_FUNDS') {
-          output.error(`Source WDK wallet '${fund.sourceWallet}' has insufficient funds for the USD₮ transfer and network fee.`)
+          if (usesUsdtPaymaster) {
+            output.error(`Source WDK wallet '${fund.sourceWallet}' needs enough USDT for both the transfer and paymaster fee.`)
+          } else {
+            output.error(`Source WDK wallet '${fund.sourceWallet}' has insufficient funds for the USD₮ transfer and network fee.`)
+          }
         } else {
           output.error(`WDK transfer broadcast failed. ${error.message}`)
         }

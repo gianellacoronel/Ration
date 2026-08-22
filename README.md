@@ -1,8 +1,8 @@
 # Ration
 
-Ration is an early scaffold for disposable financial sandboxes for AI agents, built on the official Tether Wallet Development Kit (WDK).
+Ration creates, lists, and retrieves receiving addresses for isolated disposable wallets using the official Tether Wallet Development Kit (WDK) CLI.
 
-This iteration only verifies that the WDK SDK and WDK CLI are installed and usable. It does not create or fund wallets, run agents, send transactions, or implement sandbox policies.
+This product slice only creates and lists wallets and retrieves their addresses. It does not fund them, run agents, send transactions, or implement sandbox policies.
 
 WDK and WDK CLI are currently beta software. `npm audit` reports known vulnerabilities in the CLI's pinned transitive wallet dependencies; keep this scaffold unfunded and update to patched official releases as Tether publishes them.
 
@@ -17,17 +17,49 @@ The repository includes an `.nvmrc` matching the Node.js version used by the cur
 
 ```bash
 npm install
-npm run smoke
+npm link
+ration create
+ration list
+ration address <wallet> --network sepolia
 ```
 
-The smoke command performs two non-transactional checks:
+Ration gives each wallet a unique name such as `ration-20260822T143012123-a1b2c3d4`, then runs the official command:
 
-1. Generates and validates an in-memory seed with `@tetherto/wdk`, initializes WDK, and disposes it.
-2. Runs the official CLI's read-only `wdk network list --json` command.
+```bash
+wdk wallet create --name <generated-name>
+```
 
-The generated seed is never printed or persisted.
+WDK owns the complete interactive security flow: passphrase prompts, seed generation and display, encryption, and storage. Ration inherits the terminal directly and never captures, parses, logs, or stores the seed phrase or passphrase.
 
-Run other official CLI commands through the project-local installation:
+List the Ration wallets recognized by WDK:
+
+```bash
+ration list
+```
+
+Ration uses the official `wdk wallet list --json` output as its source of truth and shows only wallet names matching its generated naming convention.
+
+Get the receiving address for a listed Ration wallet:
+
+```bash
+ration address <wallet> --network sepolia
+```
+
+Ration verifies the wallet against WDK's wallet list, then runs `wdk get address --wallet <wallet> --network sepolia --json`. WDK requires the wallet to be unlocked before deriving its address. If needed, unlock it explicitly and retry:
+
+```bash
+npm run wdk -- wallet unlock --name <wallet>
+```
+
+Without linking the package, run the same flow locally with:
+
+```bash
+npm run ration -- create
+npm run ration -- list
+npm run ration -- address <wallet> --network sepolia
+```
+
+Run official WDK CLI commands through the project-local installation:
 
 ```bash
 npm run wdk -- --help
@@ -39,9 +71,9 @@ The official Tether WDK Agent Skill is installed for OpenCode under `.agents/ski
 npx skills update wdk --project --yes
 ```
 
-## Why This Scaffold
+## Implementation
 
-Tether currently provides the official `@tetherto/wdk-cli` application and a general Node.js SDK quickstart, but no separate CLI application generator or starter. This project therefore uses the smallest documented Node.js ESM setup and the published CLI directly. `create-wdk-module` is intentionally not used because Ration is not creating a new wallet or protocol module.
+Ration starts the published `@tetherto/wdk-cli` executable as a separate process. Wallet creation inherits the terminal; wallet listing and address lookup capture only WDK's JSON output. Ration does not import WDK wallet internals or implement any wallet, mnemonic, encryption, address derivation, or storage behavior.
 
 ## Official Sources
 

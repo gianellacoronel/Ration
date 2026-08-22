@@ -4,17 +4,18 @@
   "private": true,
   "description": "Disposable financial sandboxes for AI agents, built with Tether WDK.",
   "type": "module",
+  "bin": {
+    "ration": "./bin/ration.js"
+  },
   "engines": {
     "node": ">=22.18.0"
   },
   "scripts": {
-    "smoke": "npm run smoke:sdk && npm run smoke:cli",
-    "smoke:sdk": "node src/smoke.js",
-    "smoke:cli": "wdk network list --json",
+    "ration": "node bin/ration.js",
+    "test": "node --test",
     "wdk": "wdk"
   },
   "dependencies": {
-    "@tetherto/wdk": "1.0.0-beta.16",
     "@tetherto/wdk-cli": "1.0.0-beta.3"
   }
 }

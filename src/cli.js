@@ -275,7 +275,15 @@ export async function main (args, options = {}) {
     }
 
     output.log('Ration wallets:')
-    for (const wallet of rationWallets) output.log(`  ${wallet.name}`)
+    for (const wallet of rationWallets) {
+      let status = wallet.unlocked ? 'unlocked' : 'locked'
+      if (wallet.unlocked && wallet.ttlMs === 0) {
+        status += ' (unlimited session)'
+      } else if (wallet.unlocked && typeof wallet.ttlRemaining === 'number') {
+        status += ` (${Math.ceil(wallet.ttlRemaining / 60000)} min remaining)`
+      }
+      output.log(`  ${wallet.name}  ${status}`)
+    }
     return 0
   }
 

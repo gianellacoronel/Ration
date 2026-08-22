@@ -300,18 +300,45 @@ test('lists only wallets created with the Ration naming convention', async () =>
   const exitCode = await main(['list'], {
     output,
     runWdkWalletList: async () => [
-      { name: 'ration-20260822T143012123-a1b2c3d4' },
-      { name: 'personal' },
-      { name: 'ration-not-created-by-ration' },
-      { name: 'ration-20260822T143013456-0123abcd' }
+      { name: 'ration-20260822T143012123-a1b2c3d4', unlocked: false },
+      { name: 'personal', unlocked: true, ttlMs: 300000, ttlRemaining: 240000 },
+      { name: 'ration-not-created-by-ration', unlocked: false },
+      {
+        name: 'ration-20260822T143013456-0123abcd',
+        unlocked: true,
+        ttlMs: 300000,
+        ttlRemaining: 240000
+      }
     ]
   })
 
   assert.equal(exitCode, 0)
   assert.deepEqual(lines, [
     'Ration wallets:',
-    '  ration-20260822T143012123-a1b2c3d4',
-    '  ration-20260822T143013456-0123abcd'
+    '  ration-20260822T143012123-a1b2c3d4  locked',
+    '  ration-20260822T143013456-0123abcd  unlocked (4 min remaining)'
+  ])
+})
+
+test('shows unlimited WDK sessions without exposing wallet details', async () => {
+  const lines = []
+  const exitCode = await main(['list'], {
+    output: {
+      log: (line) => lines.push(line),
+      error: (line) => lines.push(line)
+    },
+    runWdkWalletList: async () => [{
+      name: 'ration-20260822T143012123-a1b2c3d4',
+      unlocked: true,
+      ttlMs: 0,
+      ttlRemaining: 0
+    }]
+  })
+
+  assert.equal(exitCode, 0)
+  assert.deepEqual(lines, [
+    'Ration wallets:',
+    '  ration-20260822T143012123-a1b2c3d4  unlocked (unlimited session)'
   ])
 })
 

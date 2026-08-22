@@ -38,7 +38,7 @@ List the Ration wallets recognized by WDK:
 ration list
 ```
 
-Ration uses the official `wdk wallet list --json` output as its source of truth and shows only wallet names matching its generated naming convention.
+Ration uses the official `wdk wallet list --json` output as its source of truth and shows only wallets matching its generated naming convention, together with WDK's lock and session state.
 
 Get the receiving address for a listed Ration wallet:
 

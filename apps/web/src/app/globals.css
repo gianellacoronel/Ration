@@ -1,26 +1,133 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+
+  --ration-orange: #f74f06;
+  --ration-orange-dark: #d94100;
+  --ration-orange-light: #ff6a2a;
+  --ration-dark: #1c1c1c;
+  --ration-dark-soft: #252525;
+  --ration-background: #f7f7f5;
+  --ration-white: #ffffff;
+  --ration-muted: #777777;
+
+  --ration-surface: var(--ration-white);
+  --ration-foreground: var(--ration-dark);
+  --ration-border: rgb(28 28 28 / 0.12);
+
+  --ration-space-section: clamp(5rem, 10vw, 9rem);
+  --ration-space-gutter: clamp(1.25rem, 4vw, 3rem);
+  --ration-content-width: 80rem;
+
+  --ration-radius-sm: 0.375rem;
+  --ration-radius-md: 0.75rem;
+  --ration-radius-lg: 1.25rem;
+
+  --ration-shadow-card: 0 1px 2px rgb(28 28 28 / 0.06);
+  --ration-shadow-raised: 0 12px 32px rgb(28 28 28 / 0.08);
+
+  --ration-duration-fast: 150ms;
+  --ration-duration-base: 220ms;
+  --ration-duration-slow: 500ms;
+  --ration-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-ration-orange: var(--ration-orange);
+  --color-ration-orange-dark: var(--ration-orange-dark);
+  --color-ration-orange-light: var(--ration-orange-light);
+  --color-ration-dark: var(--ration-dark);
+  --color-ration-dark-soft: var(--ration-dark-soft);
+  --color-ration-background: var(--ration-background);
+  --color-ration-white: var(--ration-white);
+  --color-ration-muted: var(--ration-muted);
+  --color-background: var(--ration-background);
+  --color-foreground: var(--ration-foreground);
+  --color-surface: var(--ration-surface);
+  --color-border: var(--ration-border);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --spacing-section: var(--ration-space-section);
+  --spacing-gutter: var(--ration-space-gutter);
+  --container-content: var(--ration-content-width);
+
+  --radius-sm: var(--ration-radius-sm);
+  --radius-md: var(--ration-radius-md);
+  --radius-lg: var(--ration-radius-lg);
+
+  --shadow-card: var(--ration-shadow-card);
+  --shadow-raised: var(--ration-shadow-raised);
+
+  --ease-ration: var(--ration-ease);
+  --default-transition-duration: var(--ration-duration-base);
+  --default-transition-timing-function: var(--ration-ease);
+  --animate-fade-in: ration-fade-in var(--ration-duration-slow)
+    var(--ration-ease) both;
+  --animate-fade-up: ration-fade-up var(--ration-duration-slow)
+    var(--ration-ease) both;
+  --animate-cursor-blink: ration-cursor-blink 1s steps(2, start) infinite;
+
+  --breakpoint-mobile: 30rem;
+  --breakpoint-tablet: 48rem;
+  --breakpoint-desktop: 64rem;
+  --breakpoint-wide: 90rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes ration-fade-in {
+  from {
+    opacity: 0;
   }
 }
 
+@keyframes ration-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+}
+
+@keyframes ration-cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+* {
+  border-color: var(--ration-border);
+}
+
+html {
+  background: var(--ration-background);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--ration-background);
+  color: var(--ration-foreground);
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-geist-mono), monospace;
+}
+
+::selection {
+  background: var(--ration-orange);
+  color: var(--ration-white);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

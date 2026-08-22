@@ -8,12 +8,14 @@ const HELP = `Usage: ration <command> [options]
 Commands:
   setup                 Create or recover the Ration treasury
   create --budget <n>   Create and fund a disposable sandbox
+  run <sandbox> ...     Run a command in a funded sandbox session
   list [--balances]     List the treasury and sandboxes
   help                  Show this help
 
 Getting started:
   ration setup
   ration create --budget 5
+  ration run rationa31f --ttl 10 -- claude
   ration list`
 
 const ADVANCED_HELP = `Advanced commands:
@@ -41,6 +43,7 @@ const NETWORK = 'smart-account-sepolia'
 const TOKEN = 'USDT'
 const SESSION_TTL_MINUTES = 5
 const DEBUG_SESSION_TTL_MINUTES = 60
+const MAX_SESSION_TTL_MINUTES = Math.floor(0x7fffffff / 60000)
 const SETUP_REQUIRED = "Ration is not set up yet. Run 'ration setup' first."
 const activeChildren = new Set()
 
@@ -76,6 +79,14 @@ export class WalletLockError extends Error {
     this.exitCode = exitCode
     this.signal = signal
     this.wdkCode = wdkCode
+  }
+}
+
+export class CommandLaunchError extends Error {
+  constructor (command, cause) {
+    super(`Could not start '${command}': ${cause.message}`)
+    this.command = command
+    this.cause = cause
   }
 }
 
@@ -143,7 +154,7 @@ function watchChild (child, ErrorType, resolve, reject) {
 
 const WDK_SESSION_NOISE = /(?:Session (?:locks after|timer reset|will not expire)|Run `wdk wallet lock )/
 
-export function createWdkOutputFilter (write) {
+export function createWdkOutputFilter (write, { showPrompts = true } = {}) {
   let pending = ''
   let suppressBlank = false
   return (chunk) => {
@@ -162,25 +173,35 @@ export function createWdkOutputFilter (write) {
       suppressBlank = false
       write(`${line}\n`)
     }
+    // Inquirer's masked prompt redraws without a newline. Forward each redraw
+    // immediately while keeping ordinary WDK output line-buffered for filtering.
+    if (/assphrase/i.test(pending)) {
+      if (showPrompts) write(pending)
+      pending = ''
+    }
   }
 }
 
 function spawnInteractive (args, ErrorType, promptsToAnswer, options = {}) {
   const spawnProcess = options.spawnProcess ?? spawn
   const wdkCliPath = options.wdkCliPath ?? resolveWdkCliPath()
+  const automated = promptsToAnswer > 0
 
   return new Promise((resolve, reject) => {
     let child
     try {
       child = spawnProcess(process.execPath, [wdkCliPath, ...args],
-        { stdio: [promptsToAnswer > 0 ? 'pipe' : 'inherit', 'pipe', 'inherit'] })
+        { stdio: [automated ? 'pipe' : 'inherit', 'pipe', 'inherit'] })
     } catch (error) {
       reject(new WdkCliUnavailableError(`Could not start the WDK CLI: ${error.message}`))
       return
     }
 
     let remaining = promptsToAnswer
-    const writeFiltered = createWdkOutputFilter((line) => process.stdout.write(line))
+    const writeFiltered = createWdkOutputFilter(
+      (line) => process.stdout.write(line),
+      { showPrompts: !automated }
+    )
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk) => {
       writeFiltered(chunk)
@@ -278,6 +299,15 @@ export function runWdkWalletLock (name, options = {}) {
   )
 }
 
+export function runWdkWalletLockAll (options = {}) {
+  return spawnJson(
+    ['wallet', 'lock', '--all'],
+    WalletLockError,
+    (result) => result?.locked === true && result?.all === true,
+    options
+  )
+}
+
 export function runWdkGetAddress (wallet, network = NETWORK, options = {}) {
   return spawnJson(
     ['get', 'address', '--wallet', wallet, '--network', network],
@@ -327,6 +357,32 @@ export function runWdkTransfer (input, options = {}) {
     },
     options
   )
+}
+
+export function runRequestedCommand (command, args, options = {}) {
+  const spawnProcess = options.spawnProcess ?? spawn
+  const env = { ...process.env }
+  delete env.WDK_PASSPHRASE
+
+  return new Promise((resolve, reject) => {
+    let child
+    try {
+      child = spawnProcess(command, args, { stdio: 'inherit', env })
+    } catch (error) {
+      reject(new CommandLaunchError(command, error))
+      return
+    }
+    activeChildren.add(child)
+
+    child.once('error', (error) => {
+      activeChildren.delete(child)
+      reject(new CommandLaunchError(command, error))
+    })
+    child.once('close', (code, signal) => {
+      activeChildren.delete(child)
+      resolve({ code, signal })
+    })
+  })
 }
 
 export async function confirmTransfer (options = {}) {
@@ -390,6 +446,15 @@ function parseSingleValueFlag (args, command, flag) {
   return args[2]
 }
 
+function parseRunArgs (args) {
+  if (args.length < 6 || args[0] !== 'run' || !args[1] ||
+    args[2] !== '--ttl' || !/^\d+$/.test(args[3]) || args[4] !== '--' || !args[5]) return null
+
+  const ttl = Number(args[3])
+  if (!Number.isSafeInteger(ttl) || ttl <= 0 || ttl > MAX_SESSION_TTL_MINUTES) return null
+  return { name: args[1], ttl, command: args[5], commandArgs: args.slice(6) }
+}
+
 function isTreasuryConfigured (wallets) {
   return wallets.some((wallet) => wallet.name === TREASURY_NAME)
 }
@@ -435,6 +500,23 @@ async function lockWallets (names, options, output) {
     }
   }
   return success
+}
+
+async function lockAllWallets (options, output, fallbackName, phase = 'cleanup') {
+  try {
+    await (options.runWdkWalletLockAll ?? runWdkWalletLockAll)()
+    return { allLocked: true, sandboxLocked: true }
+  } catch (error) {
+    output.error(`Security ${phase} failed: WDK could not lock all wallets.`)
+    if (!fallbackName) return { allLocked: false, sandboxLocked: false }
+
+    try {
+      const sandboxLocked = await lockWallets(new Set([fallbackName]), options, output)
+      return { allLocked: false, sandboxLocked }
+    } catch {
+      return { allLocked: false, sandboxLocked: false }
+    }
+  }
 }
 
 async function loadWallets (options, output, failurePrefix = 'Could not inspect wallets.') {
@@ -805,6 +887,97 @@ async function fundCommand (args, options, output) {
   return 0
 }
 
+function childExitCode (result) {
+  if (Number.isInteger(result?.code)) return result.code
+  if (result?.signal === 'SIGINT') return 130
+  if (result?.signal === 'SIGTERM') return 143
+  return 1
+}
+
+async function runCommand (args, options, output) {
+  const input = parseRunArgs(args)
+  if (!input) {
+    output.error('Usage: ration run <sandbox> --ttl <minutes> -- <command> [args...]')
+    return 1
+  }
+
+  const wallets = await loadWallets(options, output)
+  if (!wallets) return 1
+  if (!isTreasuryConfigured(wallets)) {
+    output.error(SETUP_REQUIRED)
+    return 1
+  }
+  if (!wallets.some((wallet) => wallet.name === input.name && isRationWalletName(wallet.name))) {
+    output.error(`Sandbox '${input.name}' was not found.`)
+    return 1
+  }
+
+  const initialLock = await lockAllWallets(options, output, undefined, 'preparation')
+  if (!initialLock.allLocked) return 1
+
+  const unlock = options.runWdkWalletUnlock ?? runWdkWalletUnlock
+  const getBalance = options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance
+  const execute = options.runRequestedCommand ?? runRequestedCommand
+  let initialBalance
+  let finalBalance
+  let result
+  let commandAttempted = false
+  let exitCode = 0
+
+  try {
+    await unlock(input.name, { ttl: input.ttl })
+    initialBalance = balanceBaseUnits(await getBalance(input.name, NETWORK))
+    if (initialBalance <= 0n) {
+      output.error(`Sandbox '${input.name}' is not funded.`)
+      exitCode = 1
+    } else {
+      output.log('Ration')
+      output.log('')
+      output.log(`Sandbox   ${input.name}`)
+      output.log(`Budget    ${formatUsdtBaseUnits(initialBalance)}`)
+      output.log(`TTL       ${input.ttl}m`)
+      output.log('')
+      output.log(`Starting ${input.command}...`)
+      commandAttempted = true
+      result = await execute(input.command, input.commandArgs)
+      exitCode = childExitCode(result)
+    }
+  } catch (error) {
+    exitCode = operationExitCode(error)
+    if (error instanceof CommandLaunchError) output.error(error.message)
+    else printWalletError(error, output, `Sandbox '${input.name}'`)
+  } finally {
+    if (initialBalance !== undefined && commandAttempted) {
+      try {
+        finalBalance = balanceBaseUnits(await getBalance(input.name, NETWORK))
+      } catch (error) {
+        if (error instanceof WdkCliUnavailableError) unavailableMessage(output)
+        else output.error('Could not read the final sandbox balance through WDK.')
+      }
+    }
+
+    const lockResult = await lockAllWallets(options, output, input.name)
+    if (!lockResult.allLocked) exitCode = 1
+
+    if (commandAttempted) {
+      output.log('')
+      output.log('Session complete')
+      output.log('')
+      if (finalBalance === undefined) {
+        output.log('Spent      unavailable')
+        output.log('Remaining  unavailable')
+      } else {
+        const spent = initialBalance >= finalBalance ? initialBalance - finalBalance : 0n
+        output.log(`Spent      ${formatUsdtBaseUnits(spent)}`)
+        output.log(`Remaining  ${formatUsdtBaseUnits(finalBalance)}`)
+      }
+      output.log(`Sandbox    ${lockResult.sandboxLocked ? 'locked' : 'lock failed'}`)
+    }
+  }
+
+  return exitCode
+}
+
 async function debugUnlockCommand (args, options, output) {
   if (args.length !== 2 || !args[1]) {
     output.error('Usage: ration unlock <wallet>')
@@ -888,6 +1061,7 @@ async function dispatchMain (args, options = {}) {
     return setupCommand(context, output, { insecure: true })
   }
   if (args[0] === 'create') return createCommand(args, context, output)
+  if (args[0] === 'run') return runCommand(args, context, output)
   if (args[0] === 'list') return listCommand(args, context, output)
   if (args[0] === 'fund') return fundCommand(args, context, output)
   if (args[0] === 'unlock') return debugUnlockCommand(args, context, output)
@@ -901,10 +1075,23 @@ async function dispatchMain (args, options = {}) {
 export async function main (args, options = {}) {
   let interrupted
   const onSignal = (signal) => {
-    interrupted ??= signal
-    for (const child of activeChildren) {
-      if (typeof child.kill === 'function') child.kill(signal)
+    if (interrupted) return
+    interrupted = signal
+    const interruptedChildren = [...activeChildren]
+    for (const child of interruptedChildren) {
+      try {
+        if (typeof child.kill === 'function') child.kill(signal)
+      } catch {}
     }
+    const forceKillTimer = setTimeout(() => {
+      for (const child of interruptedChildren) {
+        if (!activeChildren.has(child)) continue
+        try {
+          if (typeof child.kill === 'function') child.kill('SIGKILL')
+        } catch {}
+      }
+    }, options.signalGraceMs ?? 1000)
+    forceKillTimer.unref()
   }
   const onSigint = () => onSignal('SIGINT')
   const onSigterm = () => onSignal('SIGTERM')

@@ -2,10 +2,10 @@
 
 Ration creates disposable, budgeted financial sandboxes for AI agents using the official Tether Wallet Development Kit (WDK) CLI.
 
-This iteration establishes two product concepts:
+Ration establishes two product concepts:
 
 - **Treasury:** the user's persistent wallet. It only funds sandboxes and must never be exposed to an agent.
-- **Sandbox:** a temporary Ration wallet with a bounded test USD₮ balance. Agent execution is not implemented yet.
+- **Sandbox:** a temporary Ration wallet with a bounded test USD₮ balance that can be exposed to one command for a finite session.
 
 WDK remains the wallet source of truth. Ration does not implement wallet storage and never captures, parses, logs, or persists a seed phrase or passphrase.
 
@@ -26,6 +26,7 @@ ration setup
 # Fund the displayed treasury address with test USD₮.
 
 ration create --budget 5
+ration run rationa31f --ttl 10 -- claude
 ration list
 ```
 
@@ -85,6 +86,16 @@ ration list --balances
 
 Use `ration list --verbose` to include receiving addresses (shown only for wallets that are already unlocked).
 
+## Running Commands
+
+```bash
+ration run <sandbox> --ttl <minutes> -- <command> [args...]
+```
+
+The sandbox must already exist and contain test USD₮. Ration locks every WDK wallet, unlocks only the selected sandbox using WDK's finite TTL, records its opening balance, and launches the command with the terminal attached directly. When the command exits or receives Ctrl+C, Ration attempts to read the closing balance and locks all WDK wallets before printing the session receipt.
+
+The sandbox's funded balance is the financial boundary. This command does not create, fund, sweep, delete, recycle, or apply a separate spending policy to the wallet.
+
 ## Advanced Commands
 
 These commands are not needed for the normal setup, create, and list workflow:
@@ -106,6 +117,7 @@ The advanced `unlock` command accepts sandboxes only. Ration never offers a comm
 - Ration only parses documented structured JSON from wallet listing, address, balance, lock, dry-run, and transfer commands.
 - Wallet seeds, passphrases, private keys, and EOA addresses are never captured or stored by Ration.
 - The treasury and sandbox are explicitly locked after creation, cancellation, or failure.
+- Command sessions start by locking all WDK wallets and finish with the same all-wallet lock operation.
 - Interrupt signals stop active WDK children and allow Ration's lock cleanup to finish before exit.
 - A lock failure is reported as an error and prevents Ration from claiming successful completion.
 - Normal output uses only Ration concepts and receiving addresses.
@@ -114,7 +126,7 @@ For the hackathon, Ration uses WDK's built-in Sepolia account configuration and 
 
 ## Scope
 
-This version does not implement agent execution, MCP access, `ration run`, spending policies, x402, sweeping, disposal, or automatic wallet deletion.
+This version does not implement MCP access, spending policies, x402, sweeping, disposal, or automatic wallet deletion.
 
 ## Local Development
 
@@ -123,6 +135,7 @@ Run without linking:
 ```bash
 npm run ration -- setup
 npm run ration -- create --budget 5
+npm run ration -- run rationa31f --ttl 10 -- claude
 npm run ration -- list
 ```
 

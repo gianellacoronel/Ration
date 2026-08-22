@@ -38,9 +38,10 @@ List the Ration wallets recognized by WDK:
 
 ```bash
 ration list
+ration list --network ethereum
 ```
 
-Ration uses the official `wdk wallet list --json` output as its source of truth and shows only wallets matching its generated naming convention, together with WDK's lock and session state.
+Ration uses the official `wdk wallet list --json` output as its source of truth and shows only wallets matching its generated naming convention, together with WDK's lock and session state. For unlocked wallets it also resolves the address and retrieves the registered USDT balance through WDK's JSON output. `ration list` uses Sepolia by default; pass `--network <network>` to select another network. Locked wallets remain listed without an address or balance because WDK requires an unlocked session to derive the account.
 
 Get the receiving address for a listed Ration wallet:
 
@@ -55,7 +56,7 @@ ration unlock <wallet>
 ration address <wallet> --network sepolia
 ```
 
-`ration unlock` verifies that the wallet belongs to Ration, then runs the official `wdk wallet unlock --name <wallet>` command with an inherited terminal. WDK owns the passphrase prompt and creates a session with its default five-minute TTL.
+`ration unlock` verifies that the wallet belongs to Ration, then runs the official `wdk wallet unlock --name <wallet> --ttl 60` command with an inherited terminal. WDK owns the passphrase prompt and creates a 60-minute session.
 
 Fund an existing Ration wallet with the official USD₮ token registered for a network:
 

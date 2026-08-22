@@ -5,6 +5,7 @@ import test from 'node:test'
 
 import {
   WalletAddressError,
+  WalletBalanceError,
   WalletCreationError,
   WalletListingError,
   WalletTransferError,
@@ -16,6 +17,7 @@ import {
   main,
   resolveWdkCliPath,
   runWdkGetAddress,
+  runWdkGetUsdtBalance,
   runWdkTransfer,
   runWdkWalletCreate,
   runWdkWalletList,
@@ -144,7 +146,15 @@ test('delegates unlocking to the official WDK command without capturing streams'
 
   assert.deepEqual(invocation, [
     process.execPath,
-    ['/installed/wdk.mjs', 'wallet', 'unlock', '--name', 'ration-wallet'],
+    [
+      '/installed/wdk.mjs',
+      'wallet',
+      'unlock',
+      '--name',
+      'ration-wallet',
+      '--ttl',
+      '60'
+    ],
     { stdio: 'inherit' }
   ])
 })
@@ -224,6 +234,76 @@ test('preserves structured WDK address failures', async () => {
     assert.equal(error instanceof WalletAddressError, true)
     assert.equal(error.wdkCode, 'NETWORK_NOT_SUPPORTED')
     assert.equal(error.message, "Network 'unknown' is not supported.")
+    return true
+  })
+})
+
+test('gets the registered USDT balance from official WDK JSON output', async () => {
+  const child = new EventEmitter()
+  child.stdout = new PassThrough()
+  child.stderr = new PassThrough()
+  let invocation
+
+  const promise = runWdkGetUsdtBalance('ration-wallet', 'sepolia', {
+    wdkCliPath: '/installed/wdk.mjs',
+    spawnProcess: (...args) => {
+      invocation = args
+      return child
+    }
+  })
+
+  const result = {
+    network: 'sepolia',
+    index: 0,
+    balance: '1250000',
+    symbol: 'USDT',
+    decimals: 6,
+    formatted: '1.25 USDT',
+    usd: 1.25,
+    token: '0xd077A400968890Eacc75cdc901F0356c943e4fDb'
+  }
+  child.stdout.end(JSON.stringify(result))
+  child.stderr.end()
+  child.emit('close', 0, null)
+
+  assert.deepEqual(await promise, result)
+  assert.deepEqual(invocation, [
+    process.execPath,
+    [
+      '/installed/wdk.mjs',
+      'get',
+      'balance',
+      '--wallet',
+      'ration-wallet',
+      '--network',
+      'sepolia',
+      '--token',
+      'USDT',
+      '--json'
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  ])
+})
+
+test('preserves structured WDK balance failures', async () => {
+  const child = new EventEmitter()
+  child.stdout = new PassThrough()
+  child.stderr = new PassThrough()
+  const promise = runWdkGetUsdtBalance('ration-wallet', 'polygon', {
+    wdkCliPath: '/installed/wdk.mjs',
+    spawnProcess: () => child
+  })
+
+  child.stdout.end(JSON.stringify({
+    error: "Token 'USDT' is not registered on 'polygon'.",
+    code: 'TOKEN_NOT_SUPPORTED'
+  }))
+  child.stderr.end()
+  child.emit('close', 1, null)
+
+  await assert.rejects(promise, (error) => {
+    assert.equal(error instanceof WalletBalanceError, true)
+    assert.equal(error.wdkCode, 'TOKEN_NOT_SUPPORTED')
     return true
   })
 })
@@ -453,6 +533,7 @@ test('handles an unavailable WDK CLI without exposing internals', async () => {
 
 test('lists only wallets created with the Ration naming convention', async () => {
   const lines = []
+  const addressRequests = []
   const output = {
     log: (line) => lines.push(line),
     error: (line) => lines.push(line)
@@ -470,14 +551,34 @@ test('lists only wallets created with the Ration naming convention', async () =>
         ttlMs: 300000,
         ttlRemaining: 240000
       }
-    ]
+    ],
+    runWdkGetAddress: async (wallet, network) => {
+      addressRequests.push([wallet, network])
+      return { network, address: '0x1234567890abcdef' }
+    },
+    runWdkGetUsdtBalance: async (wallet, network) => ({
+      network,
+      symbol: 'USDT',
+      formatted: '1.25 USDT'
+    })
   })
 
   assert.equal(exitCode, 0)
+  assert.deepEqual(addressRequests, [
+    ['ration-20260822T143013456-0123abcd', 'sepolia']
+  ])
   assert.deepEqual(lines, [
-    'Ration wallets:',
-    '  ration-20260822T143012123-a1b2c3d4  locked',
-    '  ration-20260822T143013456-0123abcd  unlocked (4 min remaining)'
+    'Ration wallets (sepolia):',
+    '',
+    '  ration-20260822T143012123-a1b2c3d4',
+    '    Address  -',
+    '    Balance  -',
+    '    Status   Locked',
+    '',
+    '  ration-20260822T143013456-0123abcd',
+    '    Address  0x1234567890abcdef',
+    '    Balance  1.25 USDT',
+    '    Status   Unlocked (4 min remaining)'
   ])
 })
 
@@ -493,13 +594,65 @@ test('shows unlimited WDK sessions without exposing wallet details', async () =>
       unlocked: true,
       ttlMs: 0,
       ttlRemaining: 0
-    }]
+    }],
+    runWdkGetAddress: async (wallet, network) => ({
+      network,
+      address: '0xabcdef'
+    }),
+    runWdkGetUsdtBalance: async (wallet, network) => ({
+      network,
+      symbol: 'USDT',
+      formatted: '0 USDT'
+    })
   })
 
   assert.equal(exitCode, 0)
   assert.deepEqual(lines, [
-    'Ration wallets:',
-    '  ration-20260822T143012123-a1b2c3d4  unlocked (unlimited session)'
+    'Ration wallets (sepolia):',
+    '',
+    '  ration-20260822T143012123-a1b2c3d4',
+    '    Address  0xabcdef',
+    '    Balance  0 USDT',
+    '    Status   Unlocked (unlimited session)'
+  ])
+})
+
+test('lists unlocked addresses for an explicitly selected network', async () => {
+  const lines = []
+  const wallet = 'ration-20260822T143012123-a1b2c3d4'
+  let addressRequest
+
+  const exitCode = await main(['list', '--network', 'ethereum'], {
+    output: {
+      log: (line) => lines.push(line),
+      error: (line) => lines.push(line)
+    },
+    runWdkWalletList: async () => [{
+      name: wallet,
+      unlocked: true,
+      ttlMs: 3600000,
+      ttlRemaining: 3540000
+    }],
+    runWdkGetAddress: async (...args) => {
+      addressRequest = args
+      return { network: 'ethereum', address: '0xethereum' }
+    },
+    runWdkGetUsdtBalance: async (wallet, network) => ({
+      network,
+      symbol: 'USDT',
+      formatted: '42 USDT'
+    })
+  })
+
+  assert.equal(exitCode, 0)
+  assert.deepEqual(addressRequest, [wallet, 'ethereum'])
+  assert.deepEqual(lines, [
+    'Ration wallets (ethereum):',
+    '',
+    `  ${wallet}`,
+    '    Address  0xethereum',
+    '    Balance  42 USDT',
+    '    Status   Unlocked (59 min remaining)'
   ])
 })
 
@@ -547,7 +700,7 @@ test('unlocks only a wallet that belongs to Ration', async () => {
 
   assert.equal(exitCode, 0)
   assert.equal(unlockedWallet, wallet)
-  assert.deepEqual(lines, [`Ration wallet '${wallet}' is unlocked for the WDK session.`])
+  assert.deepEqual(lines, [`Ration wallet '${wallet}' is unlocked for a 60-minute WDK session.`])
 })
 
 test('does not unlock a non-Ration wallet', async () => {
@@ -1014,4 +1167,17 @@ test('requires the complete fund command syntax', async () => {
   assert.deepEqual(errors, [
     'Usage: ration fund <wallet> --from <source-wallet> --amount <amount> --network <network>'
   ])
+})
+
+test('requires valid list command options', async () => {
+  const errors = []
+  const exitCode = await main(['list', '--network'], {
+    output: {
+      log: () => {},
+      error: (line) => errors.push(line)
+    }
+  })
+
+  assert.equal(exitCode, 1)
+  assert.deepEqual(errors, ['Usage: ration list [--network <network>]'])
 })

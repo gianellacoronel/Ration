@@ -7,16 +7,19 @@ const HELP = `Usage: ration <command> [options]
 
 Commands:
   create    Create a disposable wallet managed by WDK
-  list      List disposable wallets created by Ration
+  list      List Ration wallets and unlocked addresses
   unlock    Unlock a Ration wallet for a WDK session
   address   Get a Ration wallet address for a network
   fund      Fund a Ration wallet with USD₮ from another WDK wallet
   help      Show this help`
 
 const ADDRESS_USAGE = 'Usage: ration address <wallet> --network <network>'
+const LIST_USAGE = 'Usage: ration list [--network <network>]'
 const UNLOCK_USAGE = 'Usage: ration unlock <wallet>'
 const FUND_USAGE = 'Usage: ration fund <wallet> --from <source-wallet> --amount <amount> --network <network>'
+const DEFAULT_LIST_NETWORK = 'sepolia'
 const FUND_TOKEN = 'USDT'
+const RATION_SESSION_TTL_MINUTES = 60
 
 export class WdkCliUnavailableError extends Error {}
 
@@ -37,6 +40,15 @@ export class WalletListingError extends Error {
 }
 
 export class WalletAddressError extends Error {
+  constructor (exitCode, signal, message, wdkCode) {
+    super(message ?? (signal ? `WDK was stopped by ${signal}.` : `WDK exited with code ${exitCode}.`))
+    this.exitCode = exitCode
+    this.signal = signal
+    this.wdkCode = wdkCode
+  }
+}
+
+export class WalletBalanceError extends Error {
   constructor (exitCode, signal, message, wdkCode) {
     super(message ?? (signal ? `WDK was stopped by ${signal}.` : `WDK exited with code ${exitCode}.`))
     this.exitCode = exitCode
@@ -167,7 +179,15 @@ export function runWdkWalletUnlock (name, options = {}) {
     try {
       child = spawnProcess(
         process.execPath,
-        [wdkCliPath, 'wallet', 'unlock', '--name', name],
+        [
+          wdkCliPath,
+          'wallet',
+          'unlock',
+          '--name',
+          name,
+          '--ttl',
+          String(RATION_SESSION_TTL_MINUTES)
+        ],
         { stdio: 'inherit' }
       )
     } catch (error) {
@@ -236,6 +256,72 @@ export function runWdkGetAddress (wallet, network, options = {}) {
         result.network !== network
       ) {
         reject(new WalletAddressError(exitCode, signal, 'WDK returned an unexpected address result.'))
+        return
+      }
+
+      resolve(result)
+    })
+  })
+}
+
+export function runWdkGetUsdtBalance (wallet, network, options = {}) {
+  const spawnProcess = options.spawnProcess ?? spawn
+  const wdkCliPath = options.wdkCliPath ?? resolveWdkCliPath()
+
+  return new Promise((resolve, reject) => {
+    let child
+
+    try {
+      child = spawnProcess(
+        process.execPath,
+        [
+          wdkCliPath,
+          'get',
+          'balance',
+          '--wallet',
+          wallet,
+          '--network',
+          network,
+          '--token',
+          FUND_TOKEN,
+          '--json'
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] }
+      )
+    } catch (error) {
+      reject(new WdkCliUnavailableError(`Could not start the WDK CLI: ${error.message}`))
+      return
+    }
+
+    let stdout = ''
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.resume()
+
+    child.once('error', (error) => {
+      reject(new WdkCliUnavailableError(`Could not start the WDK CLI: ${error.message}`))
+    })
+    child.once('close', (exitCode, signal) => {
+      let result
+      try {
+        result = JSON.parse(stdout)
+      } catch {
+        result = null
+      }
+
+      if (exitCode !== 0) {
+        const message = typeof result?.error === 'string' ? result.error : undefined
+        const wdkCode = typeof result?.code === 'string' ? result.code : undefined
+        reject(new WalletBalanceError(exitCode, signal, message, wdkCode))
+        return
+      }
+
+      if (
+        result?.network !== network ||
+        result?.symbol !== FUND_TOKEN ||
+        typeof result?.formatted !== 'string'
+      ) {
+        reject(new WalletBalanceError(exitCode, signal, 'WDK returned an unexpected balance result.'))
         return
       }
 
@@ -378,7 +464,7 @@ export async function main (args, options = {}) {
   }
 
   const isCreate = args.length === 1 && args[0] === 'create'
-  const isList = args.length === 1 && args[0] === 'list'
+  const isList = args[0] === 'list'
   const isUnlock = args[0] === 'unlock'
   const isAddress = args[0] === 'address'
   const isFund = args[0] === 'fund'
@@ -390,6 +476,15 @@ export async function main (args, options = {}) {
   }
 
   if (isList) {
+    if (
+      args.length !== 1 &&
+      (args.length !== 3 || args[1] !== '--network' || !args[2])
+    ) {
+      output.error(LIST_USAGE)
+      return 1
+    }
+
+    const network = args[2] ?? DEFAULT_LIST_NETWORK
     let wallets
     try {
       wallets = await (options.runWdkWalletList ?? runWdkWalletList)()
@@ -414,15 +509,79 @@ export async function main (args, options = {}) {
       return 0
     }
 
-    output.log('Ration wallets:')
+    const addresses = new Map()
+    const balances = new Map()
     for (const wallet of rationWallets) {
-      let status = wallet.unlocked ? 'unlocked' : 'locked'
+      if (!wallet.unlocked) continue
+
+      try {
+        const result = await (options.runWdkGetAddress ?? runWdkGetAddress)(wallet.name, network)
+        addresses.set(wallet.name, result.address)
+      } catch (error) {
+        if (error instanceof WdkCliUnavailableError) {
+          output.error('Ration could not find or start the official WDK CLI.')
+          output.error('Run `npm install` to install @tetherto/wdk-cli, then try again.')
+          return 1
+        }
+
+        if (error instanceof WalletAddressError) {
+          if (error.wdkCode === 'NETWORK_NOT_SUPPORTED') {
+            output.error(`Network '${network}' is not supported by the installed WDK CLI.`)
+          } else if (error.wdkCode === 'WALLET_NOT_UNLOCKED' || error.wdkCode === 'WALLET_LOCKED') {
+            output.error(`Ration wallet '${wallet.name}' was locked before its address could be resolved.`)
+            output.error('Run `ration list` again to refresh wallet status.')
+          } else {
+            output.error(`Could not resolve address for '${wallet.name}'. ${error.message}`)
+          }
+          return error.signal === 'SIGINT' ? 130 : 1
+        }
+
+        throw error
+      }
+
+      try {
+        const result = await (options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance)(wallet.name, network)
+        balances.set(wallet.name, result.formatted)
+      } catch (error) {
+        if (error instanceof WdkCliUnavailableError) {
+          output.error('Ration could not find or start the official WDK CLI.')
+          output.error('Run `npm install` to install @tetherto/wdk-cli, then try again.')
+          return 1
+        }
+
+        if (error instanceof WalletBalanceError) {
+          if (error.wdkCode === 'NETWORK_NOT_SUPPORTED') {
+            output.error(`Network '${network}' is not supported by the installed WDK CLI.`)
+          } else if (error.wdkCode === 'TOKEN_NOT_SUPPORTED' || error.wdkCode === 'INVALID_TOKEN') {
+            output.error(`The official USDT token is not registered for network '${network}'.`)
+          } else if (error.wdkCode === 'WALLET_NOT_UNLOCKED' || error.wdkCode === 'WALLET_LOCKED') {
+            output.error(`Ration wallet '${wallet.name}' was locked before its balance could be retrieved.`)
+            output.error('Run `ration list` again to refresh wallet status.')
+          } else {
+            output.error(`Could not retrieve USDT balance for '${wallet.name}'. ${error.message}`)
+          }
+          return error.signal === 'SIGINT' ? 130 : 1
+        }
+
+        throw error
+      }
+    }
+
+    output.log(`Ration wallets (${network}):`)
+    for (const wallet of rationWallets) {
+      let status = wallet.unlocked ? 'Unlocked' : 'Locked'
       if (wallet.unlocked && wallet.ttlMs === 0) {
         status += ' (unlimited session)'
       } else if (wallet.unlocked && typeof wallet.ttlRemaining === 'number') {
         status += ` (${Math.ceil(wallet.ttlRemaining / 60000)} min remaining)`
       }
-      output.log(`  ${wallet.name}  ${status}`)
+      const address = addresses.get(wallet.name)
+      const balance = balances.get(wallet.name)
+      output.log('')
+      output.log(`  ${wallet.name}`)
+      output.log(`    Address  ${address ?? '-'}`)
+      output.log(`    Balance  ${balance ?? '-'}`)
+      output.log(`    Status   ${status}`)
     }
     return 0
   }
@@ -478,7 +637,7 @@ export async function main (args, options = {}) {
       throw error
     }
 
-    output.log(`Ration wallet '${wallet}' is unlocked for the WDK session.`)
+    output.log(`Ration wallet '${wallet}' is unlocked for a ${RATION_SESSION_TTL_MINUTES}-minute WDK session.`)
     return 0
   }
 

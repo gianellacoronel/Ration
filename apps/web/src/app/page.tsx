@@ -1,3 +1,4 @@
+import { CliSection } from "@/components/cli-section";
 import { Hero } from "@/components/hero";
 import { HowItWorks } from "@/components/how-it-works";
 import { Navbar } from "@/components/navbar";
@@ -11,6 +12,7 @@ export default function Home() {
         <Hero />
         <ProblemSection />
         <HowItWorks />
+        <CliSection />
       </main>
     </>
   );

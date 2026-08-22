@@ -7,13 +7,16 @@ import {
   WalletAddressError,
   WalletCreationError,
   WalletListingError,
+  WalletTransferError,
   WalletUnlockError,
   WdkCliUnavailableError,
+  confirmTransfer,
   createWalletName,
   isRationWalletName,
   main,
   resolveWdkCliPath,
   runWdkGetAddress,
+  runWdkTransfer,
   runWdkWalletCreate,
   runWdkWalletList,
   runWdkWalletUnlock
@@ -223,6 +226,164 @@ test('preserves structured WDK address failures', async () => {
     assert.equal(error.message, "Network 'unknown' is not supported.")
     return true
   })
+})
+
+test('runs the official WDK transfer dry run with explicit wallet, token, and JSON output', async () => {
+  const child = new EventEmitter()
+  child.stdout = new PassThrough()
+  child.stderr = new PassThrough()
+  let invocation
+
+  const promise = runWdkTransfer({
+    sourceWallet: 'treasury',
+    network: 'sepolia',
+    to: '0x1234567890abcdef',
+    amount: '12.50',
+    dryRun: true
+  }, {
+    wdkCliPath: '/installed/wdk.mjs',
+    spawnProcess: (...args) => {
+      invocation = args
+      return child
+    }
+  })
+
+  const preview = {
+    network: 'sepolia',
+    networkName: 'Ethereum Sepolia',
+    to: '0x1234567890abcdef',
+    amount: '12500000',
+    amountFormatted: '12.5 USDT',
+    amountUsd: 12.5,
+    token: '0xd077A400968890Eacc75cdc901F0356c943e4fDb',
+    tokenSymbol: 'USDT',
+    estimatedFee: '100000000000000',
+    estimatedFeeFormatted: '0.0001 ETH',
+    estimatedFeeUsd: 0.25
+  }
+  child.stdout.end(JSON.stringify(preview))
+  child.stderr.end()
+  child.emit('close', 0, null)
+
+  assert.deepEqual(await promise, preview)
+  assert.deepEqual(invocation, [
+    process.execPath,
+    [
+      '/installed/wdk.mjs',
+      'send',
+      '--wallet',
+      'treasury',
+      '--network',
+      'sepolia',
+      '--to',
+      '0x1234567890abcdef',
+      '--amount',
+      '12.50',
+      '--token',
+      'USDT',
+      '--dry-run',
+      '--json'
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  ])
+})
+
+test('runs the confirmed WDK transfer without dry-run and returns its structured transaction ID', async () => {
+  const child = new EventEmitter()
+  child.stdout = new PassThrough()
+  child.stderr = new PassThrough()
+  let invocation
+
+  const promise = runWdkTransfer({
+    sourceWallet: 'treasury',
+    network: 'sepolia',
+    to: '0x1234567890abcdef',
+    amount: '12.50',
+    dryRun: false
+  }, {
+    wdkCliPath: '/installed/wdk.mjs',
+    spawnProcess: (...args) => {
+      invocation = args
+      return child
+    }
+  })
+
+  const result = {
+    network: 'sepolia',
+    txHash: '0xtransaction',
+    from: '0xsource',
+    to: '0x1234567890abcdef',
+    amount: '12500000',
+    amountFormatted: '12.5 USDT',
+    fee: '100000000000000',
+    feeFormatted: '0.0001 ETH'
+  }
+  child.stdout.end(JSON.stringify(result))
+  child.stderr.end()
+  child.emit('close', 0, null)
+
+  assert.deepEqual(await promise, result)
+  assert.equal(invocation[1].includes('--dry-run'), false)
+  assert.deepEqual(invocation[1], [
+    '/installed/wdk.mjs',
+    'send',
+    '--wallet',
+    'treasury',
+    '--network',
+    'sepolia',
+    '--to',
+    '0x1234567890abcdef',
+    '--amount',
+    '12.50',
+    '--token',
+    'USDT',
+    '--json'
+  ])
+})
+
+test('preserves structured WDK transfer failures and their phase', async () => {
+  const child = new EventEmitter()
+  child.stdout = new PassThrough()
+  child.stderr = new PassThrough()
+  const promise = runWdkTransfer({
+    sourceWallet: 'treasury',
+    network: 'sepolia',
+    to: '0x1234567890abcdef',
+    amount: '999',
+    dryRun: true
+  }, {
+    wdkCliPath: '/installed/wdk.mjs',
+    spawnProcess: () => child
+  })
+
+  child.stdout.end(JSON.stringify({
+    error: 'Insufficient funds for this transaction.',
+    code: 'INSUFFICIENT_FUNDS'
+  }))
+  child.stderr.end('human-readable diagnostic')
+  child.emit('close', 1, null)
+
+  await assert.rejects(promise, (error) => {
+    assert.equal(error instanceof WalletTransferError, true)
+    assert.equal(error.phase, 'dry-run')
+    assert.equal(error.wdkCode, 'INSUFFICIENT_FUNDS')
+    assert.equal(error.message, 'Insufficient funds for this transaction.')
+    return true
+  })
+})
+
+test('requires an affirmative confirmation and treats closed input as cancellation', async () => {
+  const affirmativeInput = new PassThrough()
+  const affirmativeOutput = new PassThrough()
+  const affirmative = confirmTransfer({ input: affirmativeInput, output: affirmativeOutput })
+  affirmativeInput.end('yes\n')
+  assert.equal(await affirmative, true)
+
+  const closedInput = new PassThrough()
+  const closedOutput = new PassThrough()
+  const closed = confirmTransfer({ input: closedInput, output: closedOutput })
+  closedInput.end()
+  assert.equal(await closed, false)
 })
 
 test('reports an unavailable WDK installation', () => {
@@ -538,4 +699,319 @@ test('requires a wallet for the unlock command', async () => {
 
   assert.equal(exitCode, 1)
   assert.deepEqual(errors, ['Usage: ration unlock <wallet>'])
+})
+
+test('funds a resolved Ration address only after an official dry run and explicit confirmation', async () => {
+  const lines = []
+  const wallet = 'ration-20260822T143012123-a1b2c3d4'
+  const destination = '0x1234567890abcdef'
+  const transfers = []
+  let confirmationRequested = false
+
+  const exitCode = await main([
+    'fund',
+    wallet,
+    '--from',
+    'treasury',
+    '--amount',
+    '12.50',
+    '--network',
+    'sepolia'
+  ], {
+    output: {
+      log: (line) => lines.push(line),
+      error: (line) => lines.push(line)
+    },
+    runWdkWalletList: async () => [
+      { name: wallet, unlocked: true },
+      { name: 'treasury', unlocked: true }
+    ],
+    runWdkGetAddress: async (name, network) => {
+      assert.equal(name, wallet)
+      assert.equal(network, 'sepolia')
+      return { network, address: destination }
+    },
+    runWdkTransfer: async (input) => {
+      transfers.push(input)
+      if (input.dryRun) {
+        return {
+          network: 'sepolia',
+          to: destination,
+          amountFormatted: '12.5 USDT',
+          amountUsd: 12.5,
+          token: '0xd077A400968890Eacc75cdc901F0356c943e4fDb',
+          tokenSymbol: 'USDT',
+          estimatedFee: '100000000000000',
+          estimatedFeeFormatted: '0.0001 ETH',
+          estimatedFeeUsd: 0.25
+        }
+      }
+      return {
+        network: 'sepolia',
+        txHash: '0xtransaction',
+        from: '0xsource',
+        to: destination,
+        amountFormatted: '12.5 USDT'
+      }
+    },
+    confirmTransfer: async () => {
+      confirmationRequested = true
+      assert.equal(transfers.length, 1)
+      assert.equal(lines[0], 'WDK transaction preview (dry run):')
+      return true
+    }
+  })
+
+  assert.equal(exitCode, 0)
+  assert.equal(confirmationRequested, true)
+  assert.deepEqual(transfers, [
+    {
+      sourceWallet: 'treasury',
+      network: 'sepolia',
+      to: destination,
+      amount: '12.50',
+      dryRun: true
+    },
+    {
+      sourceWallet: 'treasury',
+      network: 'sepolia',
+      to: destination,
+      amount: '12.50',
+      dryRun: false
+    }
+  ])
+  assert.deepEqual(lines, [
+    'WDK transaction preview (dry run):',
+    '  Source wallet: treasury',
+    `  Destination Ration wallet: ${wallet}`,
+    `  Destination address: ${destination}`,
+    '  Network: sepolia',
+    '  Amount: 12.5 USDT (~$12.50)',
+    '  Token: USDT (0xd077A400968890Eacc75cdc901F0356c943e4fDb)',
+    '  Estimated fee: 0.0001 ETH (~$0.25)',
+    'USD₮ transfer broadcast through WDK.',
+    'Transaction ID: 0xtransaction'
+  ])
+})
+
+test('does not broadcast a funding transfer when confirmation is declined', async () => {
+  const lines = []
+  const wallet = 'ration-20260822T143012123-a1b2c3d4'
+  let transferCalls = 0
+
+  const exitCode = await main([
+    'fund', wallet, '--from', 'treasury', '--amount', '1', '--network', 'sepolia'
+  ], {
+    output: {
+      log: (line) => lines.push(line),
+      error: (line) => lines.push(line)
+    },
+    runWdkWalletList: async () => [
+      { name: wallet, unlocked: true },
+      { name: 'treasury', unlocked: true }
+    ],
+    runWdkGetAddress: async () => ({ network: 'sepolia', address: '0xdestination' }),
+    runWdkTransfer: async () => {
+      transferCalls++
+      return {
+        network: 'sepolia',
+        to: '0xdestination',
+        amountFormatted: '1 USDT',
+        tokenSymbol: 'USDT',
+        estimatedFee: '1',
+        estimatedFeeFormatted: '0.01 ETH'
+      }
+    },
+    confirmTransfer: async () => false
+  })
+
+  assert.equal(exitCode, 0)
+  assert.equal(transferCalls, 1)
+  assert.equal(lines.at(-1), 'Transfer cancelled. Nothing was broadcast.')
+  assert.equal(lines.some((line) => line.includes('Transaction ID')), false)
+})
+
+test('rejects invalid destination and source wallet names before funding', async () => {
+  const rationWallet = 'ration-20260822T143012123-a1b2c3d4'
+  let addressRequested = false
+  let transferRequested = false
+
+  const invalidDestinationErrors = []
+  const invalidDestination = await main([
+    'fund', 'personal', '--from', 'treasury', '--amount', '1', '--network', 'sepolia'
+  ], {
+    output: {
+      log: () => {},
+      error: (line) => invalidDestinationErrors.push(line)
+    },
+    runWdkWalletList: async () => [{ name: 'personal' }, { name: 'treasury', unlocked: true }],
+    runWdkGetAddress: async () => { addressRequested = true },
+    runWdkTransfer: async () => { transferRequested = true }
+  })
+
+  assert.equal(invalidDestination, 1)
+  assert.deepEqual(invalidDestinationErrors, [
+    "Ration wallet 'personal' was not found.",
+    'Run `ration list` to see available Ration wallets.'
+  ])
+
+  const invalidSourceErrors = []
+  const invalidSource = await main([
+    'fund', rationWallet, '--from', 'missing', '--amount', '1', '--network', 'sepolia'
+  ], {
+    output: {
+      log: () => {},
+      error: (line) => invalidSourceErrors.push(line)
+    },
+    runWdkWalletList: async () => [{ name: rationWallet }],
+    runWdkGetAddress: async () => { addressRequested = true },
+    runWdkTransfer: async () => { transferRequested = true }
+  })
+
+  assert.equal(invalidSource, 1)
+  assert.deepEqual(invalidSourceErrors, [
+    "Source WDK wallet 'missing' was not found.",
+    'Run `wdk wallet list` to see available source wallets.'
+  ])
+  assert.equal(addressRequested, false)
+  assert.equal(transferRequested, false)
+})
+
+test('requires the source WDK wallet to already be unlocked', async () => {
+  const errors = []
+  const wallet = 'ration-20260822T143012123-a1b2c3d4'
+  let transferRequested = false
+
+  const exitCode = await main([
+    'fund', wallet, '--from', 'treasury', '--amount', '1', '--network', 'sepolia'
+  ], {
+    output: {
+      log: () => {},
+      error: (line) => errors.push(line)
+    },
+    runWdkWalletList: async () => [
+      { name: wallet, unlocked: true },
+      { name: 'treasury', unlocked: false }
+    ],
+    runWdkTransfer: async () => { transferRequested = true }
+  })
+
+  assert.equal(exitCode, 1)
+  assert.equal(transferRequested, false)
+  assert.deepEqual(errors, [
+    "Source WDK wallet 'treasury' is locked.",
+    'Unlock it through WDK with `wdk wallet unlock --name treasury`, then try again.'
+  ])
+})
+
+test('rejects using the destination Ration wallet as its own funding source', async () => {
+  const errors = []
+  const wallet = 'ration-20260822T143012123-a1b2c3d4'
+  let transferRequested = false
+
+  const exitCode = await main([
+    'fund', wallet, '--from', wallet, '--amount', '1', '--network', 'sepolia'
+  ], {
+    output: {
+      log: () => {},
+      error: (line) => errors.push(line)
+    },
+    runWdkWalletList: async () => [{ name: wallet, unlocked: true }],
+    runWdkTransfer: async () => { transferRequested = true }
+  })
+
+  assert.equal(exitCode, 1)
+  assert.equal(transferRequested, false)
+  assert.deepEqual(errors, [
+    'The source WDK wallet must be different from the destination Ration wallet.'
+  ])
+})
+
+test('reports structured WDK funding dry-run failures cleanly', async () => {
+  const wallet = 'ration-20260822T143012123-a1b2c3d4'
+  const cases = [
+    ['INVALID_AMOUNT', "Amount 'bad' is not a valid positive USD₮ amount for WDK."],
+    ['INSUFFICIENT_FUNDS', "Source WDK wallet 'treasury' has insufficient funds for the USD₮ transfer and network fee."],
+    ['NETWORK_NOT_SUPPORTED', "Network 'sepolia' is not supported by the installed WDK CLI."],
+    ['TOKEN_NOT_SUPPORTED', "The official USDT token is not registered for network 'sepolia'."],
+    ['NETWORK_ERROR', 'WDK dry run failed. RPC unavailable.']
+  ]
+
+  for (const [wdkCode, expected] of cases) {
+    const errors = []
+    const exitCode = await main([
+      'fund', wallet, '--from', 'treasury', '--amount', 'bad', '--network', 'sepolia'
+    ], {
+      output: {
+        log: () => {},
+        error: (line) => errors.push(line)
+      },
+      runWdkWalletList: async () => [
+        { name: wallet, unlocked: true },
+        { name: 'treasury', unlocked: true }
+      ],
+      runWdkGetAddress: async () => ({ network: 'sepolia', address: '0xdestination' }),
+      runWdkTransfer: async () => {
+        throw new WalletTransferError('dry-run', 1, null, 'RPC unavailable.', wdkCode)
+      }
+    })
+
+    assert.equal(exitCode, 1)
+    assert.deepEqual(errors, [expected])
+  }
+})
+
+test('reports a structured WDK broadcast failure without claiming success', async () => {
+  const lines = []
+  const wallet = 'ration-20260822T143012123-a1b2c3d4'
+  let transferCalls = 0
+
+  const exitCode = await main([
+    'fund', wallet, '--from', 'treasury', '--amount', '1', '--network', 'sepolia'
+  ], {
+    output: {
+      log: (line) => lines.push(line),
+      error: (line) => lines.push(line)
+    },
+    runWdkWalletList: async () => [
+      { name: wallet, unlocked: true },
+      { name: 'treasury', unlocked: true }
+    ],
+    runWdkGetAddress: async () => ({ network: 'sepolia', address: '0xdestination' }),
+    runWdkTransfer: async () => {
+      transferCalls++
+      if (transferCalls === 1) {
+        return {
+          network: 'sepolia',
+          to: '0xdestination',
+          amountFormatted: '1 USDT',
+          tokenSymbol: 'USDT',
+          estimatedFee: '1',
+          estimatedFeeFormatted: '0.01 ETH'
+        }
+      }
+      throw new WalletTransferError('broadcast', 1, null, 'Transaction was rejected.', 'TRANSACTION_FAILED')
+    },
+    confirmTransfer: async () => true
+  })
+
+  assert.equal(exitCode, 1)
+  assert.equal(transferCalls, 2)
+  assert.equal(lines.at(-1), 'WDK transfer broadcast failed. Transaction was rejected.')
+  assert.equal(lines.some((line) => line.includes('Transaction ID')), false)
+})
+
+test('requires the complete fund command syntax', async () => {
+  const errors = []
+  const exitCode = await main(['fund', 'ration-wallet', '--from', 'treasury'], {
+    output: {
+      log: () => {},
+      error: (line) => errors.push(line)
+    }
+  })
+
+  assert.equal(exitCode, 1)
+  assert.deepEqual(errors, [
+    'Usage: ration fund <wallet> --from <source-wallet> --amount <amount> --network <network>'
+  ])
 })

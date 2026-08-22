@@ -508,17 +508,34 @@ test('default list never unlocks wallets and never asks for a passphrase', async
   assert.deepEqual(errors, [])
   assert.deepEqual(calls, [])
   assert.deepEqual(logs, [
+    'Ration',
+    '',
     'Treasury',
-    '  Balance   —',
+    '  hidden      locked',
     '',
     'Sandboxes',
+    '  rationa31f   hidden      locked',
+    '  rationc912   hidden      active',
     '',
-    'SANDBOX      STATUS',
-    'rationa31f   locked',
-    'rationc912   locked',
-    '',
-    "Locked wallets hide their balance and address. Run 'ration list --balances' to see them."
+    '  ration list --balances   Reveal balances'
   ])
+})
+
+test('unlocked sandboxes show their remaining session time', async () => {
+  const { logs, output } = captureOutput()
+  const exitCode = await main(['list'], {
+    output,
+    runWdkWalletList: async () => [
+      { name: 'rationtreasury', unlocked: false },
+      { name: 'ration8c42', unlocked: true, ttlMs: 300000, ttlRemaining: 479000 }
+    ],
+    runWdkWalletUnlock: async () => {},
+    runWdkGetUsdtBalance: async () => { throw new Error('should not read balances') },
+    runWdkGetAddress: async () => { throw new Error('should not read addresses') },
+    runWdkWalletLock: async () => {}
+  })
+  assert.equal(exitCode, 0)
+  assert.equal(logs.includes('  ration8c42   hidden      active · 8m'), true)
 })
 
 test('list --balances unlocks each managed wallet and returns it to locked state', async () => {
@@ -549,15 +566,15 @@ test('list --balances unlocks each managed wallet and returns it to locked state
   assert.deepEqual(errors, [])
   assert.deepEqual(unlocks, ['rationtreasury', 'rationa31f'])
   assert.deepEqual(locks, ['rationtreasury', 'rationa31f', 'rationc912'])
-  assert.deepEqual(logs.slice(0, 8), [
+  assert.deepEqual(logs, [
+    'Ration',
+    '',
     'Treasury',
-    '  Balance   42.00 USDT',
+    '  42.00 USDT  locked',
     '',
     'Sandboxes',
-    '',
-    'SANDBOX      BALANCE          STATUS',
-    'rationa31f   5.00 USDT        locked',
-    'rationc912   2.00 USDT        locked'
+    '  rationa31f   5.00 USDT   locked',
+    '  rationc912   2.00 USDT   active'
   ])
 })
 
@@ -572,8 +589,8 @@ test('verbose list adds only Ration addresses', async () => {
     runWdkGetAddress: async (name) => ({ address: `0x${name}` })
   })
   assert.equal(exitCode, 0)
-  assert.equal(logs.includes('  Address   (locked — unlock to see its address)'), true)
-  assert.equal(logs.includes('  Address: 0xrationa31f'), true)
+  assert.equal(logs.filter((line) => line.includes('0x')).length, 1)
+  assert.equal(logs.includes('    0xrationa31f'), true)
 })
 
 test('verbose list resolves addresses without unlocking when --balances is passed', async () => {
@@ -594,8 +611,9 @@ test('verbose list resolves addresses without unlocking when --balances is passe
   assert.equal(exitCode, 0)
   assert.deepEqual(unlocks, ['rationtreasury', 'rationa31f'])
   assert.deepEqual(locks, ['rationtreasury', 'rationa31f'])
-  assert.equal(logs.includes('  Address   0xrationtreasury'), true)
-  assert.equal(logs.includes('  Address: 0xrationa31f'), true)
+  assert.equal(logs.includes('  1.00 USDT   locked'), true)
+  assert.equal(logs.includes('    0xrationtreasury'), false)
+  assert.equal(logs.includes('    0xrationa31f'), true)
 })
 
 test('fund tops up from the fixed treasury and locks both wallets', async () => {

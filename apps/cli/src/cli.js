@@ -22,6 +22,20 @@ const ADVANCED_HELP = `Advanced commands:
   unlock <sandbox>                        Open a temporary sandbox session
   address <wallet> --network <network>    Resolve a wallet address`
 
+const RESET = '\x1b[0m'
+const PALETTE = { bold: '\x1b[1m', gray: '\x1b[90m', cyan: '\x1b[36m', green: '\x1b[32m', red: '\x1b[31m' }
+
+export function createStyle (enabled) {
+  const wrap = (code) => (text) => enabled ? `${code}${text}${RESET}` : String(text)
+  return {
+    bold: wrap(PALETTE.bold),
+    dim: wrap(PALETTE.gray),
+    cyan: wrap(PALETTE.cyan),
+    green: wrap(PALETTE.green),
+    red: wrap(PALETTE.red)
+  }
+}
+
 const TREASURY_NAME = 'rationtreasury'
 const NETWORK = 'smart-account-sepolia'
 const TOKEN = 'USDT'
@@ -657,36 +671,63 @@ async function listCommand (args, options, output) {
   }
   if (exitCode !== 0) return exitCode
 
-  const treasury = details.get(TREASURY_NAME)
-  output.log('Treasury')
-  output.log(`  Balance   ${treasury.balance ?? '—'}`)
-  if (verbose) output.log(`  Address   ${treasury.address ?? '(locked — unlock to see its address)'}`)
+  renderList(managed, details, { verbose, withBalances, style: options.style ?? createStyle(false) }, output)
+  return 0
+}
+
+const NAME_WIDTH = 13
+const BALANCE_WIDTH = 12
+
+function padCell (text, width, paint) {
+  const padded = text.padEnd(width)
+  return paint ? paint(padded) : padded
+}
+
+function sessionStatus (wallet, style) {
+  if (!wallet.unlocked) return style.dim('locked')
+  const remaining = typeof wallet.ttlRemaining === 'number' && wallet.ttlRemaining > 0
+    ? Math.ceil(wallet.ttlRemaining / 60000)
+    : null
+  return style.cyan(remaining ? `active · ${remaining}m` : 'active')
+}
+
+function balanceCell (detail, withBalances, style) {
+  return withBalances && detail.balance !== null
+    ? padCell(detail.balance, BALANCE_WIDTH, style.green)
+    : padCell('hidden', BALANCE_WIDTH, style.dim)
+}
+
+function renderList (managed, details, { verbose, withBalances, style }, output) {
+  output.log(style.bold('Ration'))
   output.log('')
-  output.log('Sandboxes')
+  output.log(style.bold('Treasury'))
+
+  const treasury = managed[0]
+  output.log(`  ${balanceCell(details.get(TREASURY_NAME), withBalances, style)}${sessionStatus(treasury, style)}`)
+
   output.log('')
+  output.log(style.bold('Sandboxes'))
 
   const sandboxes = managed.slice(1)
-  if (sandboxes.length === 0) {
-    output.log("  None. Run 'ration create --budget <amount>' to create one.")
-    if (!withBalances) {
-      output.log('')
-      output.log("Locked wallets hide their balance and address. Run 'ration list --balances' to see them.")
+  if (sandboxes.length > 0) {
+    for (const wallet of sandboxes) {
+      const detail = details.get(wallet.name)
+      output.log(`  ${padCell(wallet.name, NAME_WIDTH, style.cyan)}${balanceCell(detail, withBalances, style)}${sessionStatus(wallet, style)}`)
+      if (verbose && detail.address) output.log(`    ${style.dim(detail.address)}`)
     }
-    return 0
+  } else {
+    output.log(`  ${style.dim('None')}`)
   }
 
-  output.log(withBalances ? 'SANDBOX      BALANCE          STATUS' : 'SANDBOX      STATUS')
-  for (const wallet of sandboxes) {
-    const detail = details.get(wallet.name)
-    const balance = withBalances ? `${detail.balance.padEnd(17)}` : ''
-    output.log(`${wallet.name.padEnd(13)}${balance}locked`)
-    if (verbose && detail.address) output.log(`  Address: ${detail.address}`)
-  }
-  if (!withBalances) {
+  const hints = []
+  if (sandboxes.length === 0) hints.push(['ration create --budget <amount>', 'Create one'])
+  if (!withBalances) hints.push(['ration list --balances', 'Reveal balances'])
+  if (hints.length > 0) {
     output.log('')
-    output.log("Locked wallets hide their balance and address. Run 'ration list --balances' to see them.")
+    for (const [command, description] of hints) {
+      output.log(style.dim(`  ${command}   ${description}`))
+    }
   }
-  return 0
 }
 
 async function fundCommand (args, options, output) {
@@ -814,8 +855,20 @@ async function debugAddressCommand (args, options, output) {
   }
 }
 
+function detectColor (output) {
+  if (process.env.NO_COLOR || process.env.RATION_NO_COLOR) return false
+  return output === console && Boolean(process.stdout?.isTTY)
+}
+
 async function dispatchMain (args, options = {}) {
-  const output = options.output ?? console
+  const rawOutput = options.output ?? console
+  const color = detectColor(rawOutput)
+  const style = createStyle(color)
+  const context = { ...options, style }
+  const output = {
+    log: (line) => rawOutput.log(line),
+    error: (line) => rawOutput.error(color ? style.red(line) : line)
+  }
 
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h' ||
     (args[0] === 'help' && args.length === 1)) {
@@ -826,15 +879,15 @@ async function dispatchMain (args, options = {}) {
     output.log(ADVANCED_HELP)
     return 0
   }
-  if (args[0] === 'setup' && args.length === 1) return setupCommand(options, output)
+  if (args[0] === 'setup' && args.length === 1) return setupCommand(context, output)
   if (args[0] === 'setup' && args.length === 2 && args[1] === '--insecure') {
-    return setupCommand(options, output, { insecure: true })
+    return setupCommand(context, output, { insecure: true })
   }
-  if (args[0] === 'create') return createCommand(args, options, output)
-  if (args[0] === 'list') return listCommand(args, options, output)
-  if (args[0] === 'fund') return fundCommand(args, options, output)
-  if (args[0] === 'unlock') return debugUnlockCommand(args, options, output)
-  if (args[0] === 'address') return debugAddressCommand(args, options, output)
+  if (args[0] === 'create') return createCommand(args, context, output)
+  if (args[0] === 'list') return listCommand(args, context, output)
+  if (args[0] === 'fund') return fundCommand(args, context, output)
+  if (args[0] === 'unlock') return debugUnlockCommand(args, context, output)
+  if (args[0] === 'address') return debugAddressCommand(args, context, output)
 
   output.error(`Unknown command: ${args.join(' ')}`)
   output.error("Run 'ration help' for usage.")

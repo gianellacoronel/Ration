@@ -6,6 +6,7 @@ import { inspectPaymasterTokenConfig, paymasterTokenFee } from '../src/paymaster
 const publicEndpoint = 'https://api.candide.dev/public/v3/11155111'
 const paymasterTokenConfig = {
   chainId: 11155111,
+  provider: 'https://sepolia.gateway.tenderly.co',
   bundlerUrl: publicEndpoint,
   paymasterUrl: publicEndpoint,
   paymasterAddress: '0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba',

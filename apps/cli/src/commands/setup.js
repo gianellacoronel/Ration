@@ -11,9 +11,9 @@ import {
 } from './shared.js'
 
 export async function setupCommand (options, output, { insecure = false } = {}) {
+  if (!(await requirePaymasterTokenMode(options, output))) return 1
   let wallets = await loadWallets(options, output)
   if (!wallets) return 1
-  if (!(await requirePaymasterTokenMode(options, output))) return 1
 
   const create = options.runWdkWalletCreate ?? runWdkWalletCreate
   const unlock = options.runWdkWalletUnlock ?? runWdkWalletUnlock

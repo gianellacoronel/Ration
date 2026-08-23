@@ -5,6 +5,7 @@ import test from 'node:test'
 
 import {
   CommandLaunchError,
+  WalletBalanceError,
   WalletLockError,
   WalletTransferError,
   WalletUnlockError,
@@ -28,6 +29,7 @@ import {
 
 const PAYMASTER_TOKEN_CONFIG = {
   chainId: 11155111,
+  provider: 'https://sepolia.gateway.tenderly.co',
   bundlerUrl: 'https://api.candide.dev/public/v3/11155111',
   paymasterUrl: 'https://api.candide.dev/public/v3/11155111',
   paymasterAddress: '0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba',
@@ -764,7 +766,7 @@ test('list --balances unlocks each managed wallet and returns it to locked state
     rationa31f: '5000000',
     rationc912: '2000000'
   }
-  const exitCode = await main(['list', '--balances'], {
+  const exitCode = await cliMain(['list', '--balances'], {
     output,
     runWdkWalletList: async () => [
       { name: 'rationtreasury', unlocked: false },
@@ -793,6 +795,24 @@ test('list --balances unlocks each managed wallet and returns it to locked state
     '  rationa31f   5.00 USDT   locked',
     '  rationc912   2.00 USDT   active'
   ])
+})
+
+test('list --balances identifies RPC rejection without exposing provider details', async () => {
+  const { errors, output } = captureOutput()
+  const locks = []
+  const exitCode = await cliMain(['list', '--balances'], {
+    output,
+    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: false }],
+    runWdkWalletUnlock: async () => {},
+    runWdkGetUsdtBalance: async () => {
+      throw new WalletBalanceError(1, null, 'chain is not available on free plan', 'UNKNOWN_ERROR')
+    },
+    runWdkWalletLock: async (name) => locks.push(name)
+  })
+
+  assert.equal(exitCode, 1)
+  assert.deepEqual(locks, ['rationtreasury'])
+  assert.deepEqual(errors, ['The configured Sepolia RPC provider could not serve the balance request.'])
 })
 
 test('verbose list adds only Ration addresses', async () => {

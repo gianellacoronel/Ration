@@ -39,7 +39,11 @@ export function printWalletError (error, output, context) {
   } else if (error instanceof WalletAddressError) {
     output.error(`Could not resolve ${context.toLowerCase()} address through WDK.`)
   } else if (error instanceof WalletBalanceError) {
-    output.error(`Could not read ${context.toLowerCase()} balance through WDK.`)
+    if (/chain is not available|free plan|network error|server error|timeout/i.test(error.message)) {
+      output.error('The configured Sepolia RPC provider could not serve the balance request.')
+    } else {
+      output.error(`Could not read ${context.toLowerCase()} balance through WDK.`)
+    }
   } else {
     output.error(`${context} operation failed through WDK.`)
   }
@@ -108,7 +112,7 @@ export async function requirePaymasterTokenMode (options, output) {
   if (paymaster.ready) return paymaster
 
   output.error('WDK Paymaster Token mode is not configured for the Ration Sepolia environment.')
-  output.error('Use Candide\'s current public Sepolia endpoint and the registered test USD₮ paymaster token.')
+  output.error('Use Candide\'s current public Sepolia endpoint and the registered test USD₮ token.')
   output.error('No Candide API key or sponsorship policy is required.')
   return null
 }

@@ -31,7 +31,9 @@ transferMaxFee         100000
 isSponsored            false (or omitted)
 ```
 
-Candide's public endpoint serves both Bundler and Paymaster requests without an API key. It is rate-limited by source IP; private authenticated endpoints are intended for production or higher limits and are not required or bundled by Ration. The pinned WDK CLI preset still uses the deprecated `/public/v3/sepolia` path, so its user-level network config must be updated to the numeric endpoint documented above.
+Candide's public endpoint serves both Bundler and Paymaster requests without an API key. It is rate-limited by source IP; private authenticated endpoints are intended for production or higher limits and are not required or bundled by Ration. Ration validates the current numeric Candide endpoint but does not rewrite WDK configuration.
+
+Balance reads remain WDK operations. WDK's ERC-4337 account calls its configured Sepolia RPC provider internally; Ration does not issue balance RPC calls itself. The public `https://sepolia.drpc.org` example currently rejects Sepolia requests on its free plan, while the pinned WDK CLI provider `https://sepolia.gateway.tenderly.co` supports the required read calls.
 
 Ration reads the network configuration through WDK's structured CLI output and fails before unlocking a wallet when it is not the documented Paymaster Token configuration. A quoted fee at or above WDK's configured `0.1 USD₮` safety limit is rejected before confirmation or broadcast.
 

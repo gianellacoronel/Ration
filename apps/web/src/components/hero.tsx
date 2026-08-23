@@ -1,8 +1,8 @@
-import { ArrowRight, Bot, Coins, GitFork, LockKeyhole, Terminal } from "lucide-react";
+import { Bot, Coins, LockKeyhole, Terminal } from "lucide-react";
 import Image from "next/image";
 
+import { InstallCommand } from "@/components/install-command";
 import { TerminalDemo } from "@/components/terminal-demo";
-import { getStartedHref, githubHref } from "@/config/navigation";
 
 export function Hero() {
   return (
@@ -33,13 +33,8 @@ export function Hero() {
             <p className="hand-type mt-6 rotate-[-2deg] text-[clamp(1.7rem,3vw,2.5rem)] leading-none text-foreground wide:text-[2rem]">
               Give agents a ration, not your wallet.
             </p>
-            <div className="mt-9 flex flex-col gap-3 mobile:flex-row">
-              <a href={getStartedHref} className="inline-flex min-h-12 items-center justify-center gap-3 rounded-sm bg-ration-orange px-6 font-mono text-xs font-semibold uppercase tracking-[0.08em] text-ration-dark hover:bg-ration-orange-dark focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange">
-                Run the CLI <ArrowRight size={18} />
-              </a>
-              <a href={githubHref} target="_blank" rel="noreferrer" className="inline-flex min-h-12 items-center justify-center gap-3 rounded-sm border px-6 font-mono text-xs font-semibold uppercase tracking-[0.08em] text-foreground hover:border-ration-orange hover:text-ration-orange focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange">
-                <GitFork size={18} /> View source
-              </a>
+            <div className="mt-9">
+              <InstallCommand />
             </div>
           </div>
 

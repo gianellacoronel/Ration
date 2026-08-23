@@ -311,7 +311,7 @@ test('records direct transfer intent when the provider loses the submission resu
   }
 })
 
-test('spawns one task-only child agent, waits for its result, and reclaims its wallet', async () => {
+test('spawns three task-only child agents concurrently and reclaims each wallet', async () => {
   const seed = new Uint8Array(64).fill(12)
   const events = []
   const session = createSessionReceipt({
@@ -330,14 +330,21 @@ test('spawns one task-only child agent, waits for its result, and reclaims its w
   }
   const hierarchy = {
     snapshot: () => structuredClone(tree),
+    async preflightDelegation (requests) {
+      assert.deepEqual(requests.map(({ name, amount }) => ({ name, amount })), [
+        { name: 'provider-a', amount: 100000n },
+        { name: 'provider-b', amount: 100000n },
+        { name: 'provider-c', amount: 100000n }
+      ])
+      events.push('preflight')
+    },
     async delegate ({ name, amount }, hooks) {
-      assert.equal(name, 'research')
-      assert.equal(amount, 200000n)
+      const index = tree.nodes.length
       const node = {
-        id: 'root/1',
+        id: `root/${index}`,
         name,
         parentId: 'root',
-        address: '0xResearch',
+        address: `0x${name}`,
         delegatedBudgetBaseUnits: amount.toString(),
         status: 'open',
         disposalStatus: 'active',
@@ -345,7 +352,7 @@ test('spawns one task-only child agent, waits for its result, and reclaims its w
       }
       tree.nodes.push(node)
       await hooks.onChange(tree)
-      events.push('delegate')
+      events.push(`delegate-${name}`)
       return structuredClone(node)
     },
     async updateAgent (name, update, hooks) {
@@ -356,34 +363,43 @@ test('spawns one task-only child agent, waits for its result, and reclaims its w
       return structuredClone(node)
     },
     async openChildMcp (name, createService, options) {
-      assert.equal(name, 'research')
       assert.equal(typeof createService, 'function')
       assert.equal(options.session, session)
-      events.push('open-child-mcp')
+      events.push(`open-mcp-${name}`)
       return {
         configureLaunch (command, args) {
-          events.push('configure-child')
-          return { command, args, env: { CHILD_WALLET_ONLY: '1' } }
+          events.push(`configure-${name}`)
+          return { command, args, env: { CHILD_WALLET_ONLY: name } }
         },
-        async expire () { events.push('expire-child-mcp') },
-        async close () { events.push('close-child-mcp') }
+        async expire () { events.push(`expire-mcp-${name}`) },
+        async close () { events.push(`close-mcp-${name}`) }
       }
     },
     async close (name, hooks) {
-      assert.equal(name, 'research')
       const node = tree.nodes.find((entry) => entry.name === name)
       Object.assign(node, {
         status: 'closed',
         disposalStatus: 'disposed',
-        usdtReturnedToParentBaseUnits: '140000',
+        usdtReturnedToParentBaseUnits: {
+          'provider-a': '70000',
+          'provider-b': '60000',
+          'provider-c': '80000'
+        }[name],
         ethReturnedToParentWei: '10000'
       })
       await hooks.onChange(tree)
-      events.push('close')
+      events.push(`close-${name}`)
       return structuredClone(node)
     },
     async closeAll () { events.push('close-all') }
   }
+  let running = 0
+  let maximumRunning = 0
+  let started = 0
+  let releaseAll
+  const allStarted = new Promise((resolve) => { releaseAll = resolve })
+  let releaseFinish
+  const finishChildren = new Promise((resolve) => { releaseFinish = resolve })
   const service = await createSandboxMcpService(seed, config, '0xephemeral', {
     WalletManager: fakeWallet(events, seed),
     hierarchy,
@@ -392,13 +408,19 @@ test('spawns one task-only child agent, waits for its result, and reclaims its w
     subagentCommandArgs: ['--provider', 'judge/model'],
     async runSubagentCommand (command, args, options) {
       assert.equal(command, 'judge-agent')
-      assert.deepEqual(args, [
-        '--provider', 'judge/model', 'Buy the research you need and summarize it.'
-      ])
-      assert.deepEqual(options.env, { CHILD_WALLET_ONLY: '1' })
+      const name = options.env.CHILD_WALLET_ONLY
+      assert.deepEqual(args, ['--provider', 'judge/model', `Benchmark ${name}.`])
       assert.equal(options.signal.aborted, false)
-      events.push('run-child')
-      return { code: 0, signal: null, stdout: 'Research summary', stderr: '' }
+      events.push(`run-${name}`)
+      running++
+      maximumRunning = Math.max(maximumRunning, running)
+      if (++started === 3) releaseAll()
+      await allStarted
+      await finishChildren
+      await new Promise((resolve) => setTimeout(resolve,
+        { 'provider-a': 15, 'provider-b': 1, 'provider-c': 8 }[name]))
+      running--
+      return { code: 0, signal: null, stdout: `${name} result`, stderr: '' }
     }
   })
   const launch = service.configureLaunch('opencode', [], {})
@@ -411,36 +433,170 @@ test('spawns one task-only child agent, waits for its result, and reclaims its w
   try {
     await client.connect(transport)
     const tools = await client.listTools()
-    assert.equal(tools.tools.some((tool) => tool.name === 'ration_spawnSubagent'), true)
+    assert.equal(tools.tools.some((tool) => tool.name === 'ration_spawnSubagents'), true)
+    assert.equal(tools.tools.some((tool) => tool.name === 'ration_spawnSubagent'), false)
     assert.equal(tools.tools.some((tool) => tool.name === 'ration_delegateBudget'), false)
-    const spawned = await client.callTool({
-      name: 'ration_spawnSubagent',
+    const tooMany = await client.callTool({
+      name: 'ration_spawnSubagents',
       arguments: {
-        name: 'research',
-        budget: '0.20',
-        task: 'Buy the research you need and summarize it.'
+        agents: ['a', 'b', 'c', 'd'].map((name) => ({ name, budget: '0.01', task: name }))
       }
     })
-    assert.equal(spawned.content[0].text, 'Research summary')
-    assert.deepEqual(spawned.structuredContent, {
-      name: 'research',
-      result: 'Research summary',
-      budget: '0.20',
-      spent: '0.06',
-      returned: '0.14',
-      status: 'closed'
+    const duplicate = await client.callTool({
+      name: 'ration_spawnSubagents',
+      arguments: {
+        agents: [
+          { name: 'same', budget: '0.01', task: 'first' },
+          { name: 'same', budget: '0.01', task: 'second' }
+        ]
+      }
     })
-    assert.equal(session.receipt.sandboxTree.nodes.at(-1).status, 'closed')
-    assert.equal(session.receipt.sandboxTree.nodes.at(-1).agentStatus, 'exited')
+    assert.equal(tooMany.isError, true)
+    assert.equal(duplicate.isError, true)
+    assert.deepEqual(events.filter((event) => typeof event === 'string'), [])
+    const spawnedOperation = client.callTool({
+      name: 'ration_spawnSubagents',
+      arguments: {
+        agents: ['provider-a', 'provider-b', 'provider-c'].map((name) => ({
+          name,
+          budget: '0.10',
+          task: `Benchmark ${name}.`
+        }))
+      }
+    })
+    await allStarted
+    const competingInput = {
+      name: 'ration_spawnSubagents',
+      arguments: { agents: [{ name: 'other', budget: '0.01', task: 'other' }] }
+    }
+    const competing = await client.callTool(competingInput)
+    const stillCompeting = await client.callTool(competingInput)
+    assert.equal(competing.isError, true)
+    assert.equal(stillCompeting.isError, true)
+    assert.match(competing.content[0].text, /batch is already running/)
+    releaseFinish()
+    const spawned = await spawnedOperation
+    assert.match(spawned.content[0].text,
+      /provider-a result[\s\S]*provider-b result[\s\S]*provider-c result/)
+    assert.deepEqual(spawned.structuredContent, {
+      status: 'complete',
+      agents: [
+        {
+          name: 'provider-a', result: 'provider-a result', error: '', budget: '0.10',
+          spent: '0.03', returned: '0.07', agentStatus: 'exited', cleanupStatus: 'closed'
+        },
+        {
+          name: 'provider-b', result: 'provider-b result', error: '', budget: '0.10',
+          spent: '0.04', returned: '0.06', agentStatus: 'exited', cleanupStatus: 'closed'
+        },
+        {
+          name: 'provider-c', result: 'provider-c result', error: '', budget: '0.10',
+          spent: '0.02', returned: '0.08', agentStatus: 'exited', cleanupStatus: 'closed'
+        }
+      ]
+    })
+    assert.equal(maximumRunning, 3)
+    assert.equal(session.receipt.sandboxTree.nodes.slice(1).every((node) =>
+      node.status === 'closed' && node.agentStatus === 'exited'), true)
     assert.doesNotMatch(JSON.stringify(spawned), /seed|private.?key|keyPair/i)
+  } finally {
+    releaseFinish()
+    await client.close()
+    await service.close()
+  }
+  assert.equal(events.indexOf('delegate-provider-c') < events.indexOf('run-provider-a'), true)
+  assert.equal(events.filter((event) => /^close-provider-/.test(event)).length, 3)
+  assert.equal(events.filter((event) => typeof event === 'string').at(-1), 'close-all')
+})
+
+test('one failed child does not cancel or prevent cleanup of successful siblings', async () => {
+  const seed = new Uint8Array(64).fill(15)
+  const events = []
+  const tree = {
+    rootId: 'root',
+    nodes: [{
+      id: 'root', name: 'root', parentId: null, address: '0xEphemeral',
+      status: 'open', disposalStatus: 'active'
+    }]
+  }
+  const hierarchy = {
+    snapshot: () => structuredClone(tree),
+    async preflightDelegation () {},
+    async delegate ({ name, amount }) {
+      tree.nodes.push({
+        id: `root/${tree.nodes.length}`,
+        name,
+        parentId: 'root',
+        address: `0x${name}`,
+        delegatedBudgetBaseUnits: amount.toString(),
+        usdtReturnedToParentBaseUnits: '0',
+        status: 'open',
+        disposalStatus: 'active',
+        agentStatus: 'not_started'
+      })
+    },
+    async updateAgent (name, update) {
+      Object.assign(tree.nodes.find((node) => node.name === name), update)
+    },
+    async openChildMcp (name) {
+      return {
+        configureLaunch: (command, args) => ({ command, args, env: { CHILD_NAME: name } }),
+        async expire () {},
+        async close () { events.push(`mcp-closed-${name}`) }
+      }
+    },
+    async close (name) {
+      const node = tree.nodes.find((entry) => entry.name === name)
+      Object.assign(node, {
+        status: 'closed',
+        disposalStatus: 'disposed',
+        usdtReturnedToParentBaseUnits: name === 'provider-b' ? '100000' : '90000'
+      })
+      events.push(`wallet-closed-${name}`)
+    },
+    async closeAll () {}
+  }
+  const service = await createSandboxMcpService(seed, config, '0xephemeral', {
+    WalletManager: fakeWallet(events, seed),
+    hierarchy,
+    subagentCommand: 'judge-agent',
+    async runSubagentCommand (command, args, options) {
+      const name = options.env.CHILD_NAME
+      events.push(`run-${name}`)
+      return name === 'provider-b'
+        ? { code: 1, signal: null, stdout: '', stderr: 'provider failed' }
+        : { code: 0, signal: null, stdout: `${name} result`, stderr: '' }
+    }
+  })
+  const launch = service.configureLaunch('opencode', [], {})
+  const command = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT).mcp.ration.command
+  const client = new Client({ name: 'ration-test', version: '1.0.0' })
+  const transport = new StdioClientTransport({
+    command: command[0], args: command.slice(1), stderr: 'pipe'
+  })
+
+  try {
+    await client.connect(transport)
+    const result = await client.callTool({
+      name: 'ration_spawnSubagents',
+      arguments: {
+        agents: ['provider-a', 'provider-b', 'provider-c'].map((name) => ({
+          name, budget: '0.10', task: `Benchmark ${name}.`
+        }))
+      }
+    })
+    assert.equal(result.isError, undefined)
+    assert.equal(result.structuredContent.status, 'partial_failure')
+    assert.deepEqual(result.structuredContent.agents.map((agent) => agent.agentStatus),
+      ['exited', 'failed', 'exited'])
+    assert.equal(result.structuredContent.agents.every((agent) =>
+      agent.cleanupStatus === 'closed'), true)
+    assert.equal(events.filter((event) => /^run-provider-/.test(event)).length, 3)
+    assert.equal(events.filter((event) => /^wallet-closed-provider-/.test(event)).length, 3)
   } finally {
     await client.close()
     await service.close()
   }
-  assert.deepEqual(events.filter((event) => typeof event === 'string'), [
-    'delegate', 'agent-running', 'open-child-mcp', 'configure-child', 'run-child',
-    'agent-exited', 'close-child-mcp', 'close', 'close-all'
-  ])
 })
 
 test('allows consecutive direct transfers without elicitation and leaves overspending to the wallet', async () => {
@@ -523,6 +679,7 @@ test('child MCP is wallet-attributed, write-bounded, and cannot spawn descendant
     await client.connect(transport)
     const tools = await client.listTools()
     assert.equal(tools.tools.some((tool) => tool.name === 'ration_spawnSubagent'), false)
+    assert.equal(tools.tools.some((tool) => tool.name === 'ration_spawnSubagents'), false)
     const first = await client.callTool({
       name: 'transfer',
       arguments: { chain: 'sepolia', token: 'USDT', to: '0xSeller', amount: '0.01' }

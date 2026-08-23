@@ -22,7 +22,7 @@ import {
 } from '../recovery.js'
 import {
   createEphemeralSandbox,
-  lifecycleGasReserve,
+  hierarchicalGasReserve,
   waitForSandboxFunding,
   waitForSandboxGas
 } from '../sandbox.js'
@@ -201,9 +201,15 @@ export async function runCommand (args, options, output) {
   let mcpExpiration
   let financialExpired = false
   let recoveryRequired = false
+  let journalWrite = Promise.resolve()
 
-  const saveJournal = async () => {
-    if (journal) await persistJournal(journal, recovery.journalKey, options)
+  const saveJournal = () => {
+    if (!journal) return Promise.resolve()
+    const snapshot = structuredClone(journal)
+    const write = () => persistJournal(snapshot, recovery.journalKey, options)
+    const result = journalWrite.then(write, write)
+    journalWrite = result.catch(() => {})
+    return result
   }
   const transitionJournal = async (state, update = {}) => {
     if (!journal) return
@@ -239,11 +245,10 @@ export async function runCommand (args, options, output) {
     const estimatedSweepFee = budgetFundingFee === null
       ? lifecycleGas.tokenFee
       : [lifecycleGas.tokenFee, budgetFundingFee].reduce((largest, fee) => fee > largest ? fee : largest)
-    const gasReserve = lifecycleGasReserve(
+    const gasReserve = hierarchicalGasReserve(
       estimatedSweepFee,
       lifecycleGas.nativeFee,
-      MAX_DEMO_RESOURCE_PURCHASES + 2,
-      3
+      MAX_DEMO_RESOURCE_PURCHASES + 1
     )
     receipt.initialGasReserveWei = gasReserve.toString()
     const gasInput = {

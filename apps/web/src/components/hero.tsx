@@ -27,7 +27,7 @@ export function Hero() {
               <span className="block whitespace-nowrap">Give</span>
               <span className="block whitespace-nowrap">Every</span>
               <span className="block whitespace-nowrap">Process</span>
-              <span className="block whitespace-nowrap text-ration-orange">It&apos;s own</span>
+              <span className="block whitespace-nowrap text-ration-orange">Its own</span>
               <span className="block whitespace-nowrap text-ration-orange">Money</span>
             </h1>
             <p className="hand-type mt-6 rotate-[-2deg] text-[clamp(1.7rem,3vw,2.5rem)] leading-none text-foreground wide:text-[2rem]">

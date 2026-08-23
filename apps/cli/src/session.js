@@ -276,24 +276,25 @@ export function renderSessionSummary (receipt) {
   if (children.length > 0) {
     const lines = [`Session ${shortSessionId(receipt.sessionId)}`, '']
     const amountLine = (label, amount) => `${label.padEnd(21)}${formatUsdtBaseUnits(amount)}`
+    const units = (amount) => formatUsdtBaseUnits(amount).replace(/ USDT$/, '')
     lines.push(amountLine('root', receipt.initialUsdtBudgetBaseUnits))
     for (const child of children) {
       const returned = BigInt(child.usdtReturnedToParentBaseUnits ?? 0)
       const recordedSpent = (receipt.activity ?? [])
         .filter((activity) => activity.sandboxId === child.id && activity.status === 'confirmed')
         .reduce((total, activity) => total + BigInt(activity.amountBaseUnits), 0n)
-      const spent = recordedSpent > 0n || child.status !== 'closed'
-        ? recordedSpent
-        : BigInt(child.delegatedBudgetBaseUnits) - returned
-      lines.push(
-        amountLine(`├── ${child.name}`, child.delegatedBudgetBaseUnits),
-        amountLine('│   spent', spent > 0n ? spent : 0n),
-        amountLine('│   returned', returned)
-      )
+      const spendingKnown = child.status === 'closed' && child.disposalStatus === 'disposed'
+      const spent = spendingKnown
+        ? BigInt(child.delegatedBudgetBaseUnits) - returned
+        : recordedSpent > 0n ? recordedSpent : null
+      const label = `├── ${child.name}`.padEnd(21)
+      lines.push(`${label}${units(child.delegatedBudgetBaseUnits).padEnd(7)}spent ${spent === null ? 'unknown' : units(spent > 0n ? spent : 0n)}`)
     }
-    const available = BigInt(receipt.initialUsdtBudgetBaseUnits) - BigInt(receipt.totalUsdtSpentBaseUnits)
+    const delegated = children.reduce((total, child) =>
+      total + BigInt(child.delegatedBudgetBaseUnits), 0n)
+    const rootUnused = BigInt(receipt.initialUsdtBudgetBaseUnits) - delegated
     lines.push(
-      amountLine('└── root available', available > 0n ? available : 0n),
+      amountLine('└── root unused', rootUnused > 0n ? rootUnused : 0n),
       '',
       amountLine('Total spent', receipt.totalUsdtSpentBaseUnits),
       amountLine('Returned', receipt.usdtReturnedToTreasuryBaseUnits)

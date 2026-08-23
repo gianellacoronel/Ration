@@ -7,7 +7,7 @@ import { USDT_ADDRESS } from './config.js'
 
 const CHAIN = 'sepolia'
 const ROOT_ID = 'root'
-const MAX_CHILDREN = 1
+export const MAX_CHILDREN = 3
 export const MAX_CHILD_FINANCIAL_WRITES = 5
 const CHILD_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/
 const GAS_RESERVE_NUMERATOR = 125n
@@ -57,7 +57,9 @@ export function createSandboxHierarchy (input) {
   const children = new Map()
   let sequence = 0
   let disposed = false
-  let mutation = Promise.resolve()
+  let rootMutation = Promise.resolve()
+  let metadataMutation = Promise.resolve()
+  const childMutations = new Map()
 
   const snapshot = () => ({
     rootId: ROOT_ID,
@@ -72,10 +74,21 @@ export function createSandboxHierarchy (input) {
   })
 
   const notify = async (hooks) => hooks?.onChange?.(snapshot())
-  const serialize = (operation) => {
+  const serializeRoot = (operation) => {
     const execute = () => input.runFinancial ? input.runFinancial(operation) : operation()
-    const result = mutation.then(execute, execute)
-    mutation = result.catch(() => {})
+    const result = rootMutation.then(execute, execute)
+    rootMutation = result.catch(() => {})
+    return result
+  }
+  const serializeMetadata = (operation) => {
+    const result = metadataMutation.then(operation, operation)
+    metadataMutation = result.catch(() => {})
+    return result
+  }
+  const serializeChild = (id, operation) => {
+    const previous = childMutations.get(id) ?? Promise.resolve()
+    const result = previous.then(operation, operation)
+    childMutations.set(id, result.catch(() => {}))
     return result
   }
 
@@ -254,21 +267,51 @@ export function createSandboxHierarchy (input) {
     node.record.ethReturnedToParentWei = ethReturned.toString()
     disposeWallet(node.wallet)
     node.record.disposalStatus = 'disposed'
+    node.record.cleanupStatus = 'closed'
     node.record.status = 'closed'
     node.record.closedAt = input.now()
     await notify(hooks)
     return publicNode(node)
   }
 
-  const delegate = async ({ name, amount }, hooks = {}) => serialize(async () => {
+  const validateDelegation = ({ name, amount }, pendingNames = new Set()) => {
     if (disposed) throw new Error('The parent sandbox has been disposed.')
     if (!CHILD_NAME_PATTERN.test(name)) {
       throw new Error('Child names must start with a lowercase letter and contain only lowercase letters, digits, or hyphens.')
     }
     if (typeof amount !== 'bigint' || amount <= 0n) throw new Error('The delegated USDT amount must be positive.')
-    if (sequence >= MAX_CHILDREN) throw new Error('This experiment allows one child sandbox per session.')
-    if ([...children.values()].some((child) => child.record.name === name)) {
+    if ([...children.values()].some((child) => child.record.name === name) || pendingNames.has(name)) {
       throw new Error(`A child sandbox named "${name}" already exists.`)
+    }
+  }
+
+  const preflightDelegation = (requests, hooks = {}) => serializeRoot(async () => {
+    hooks.assertOpen?.()
+    if (!Array.isArray(requests) || requests.length < 1 || requests.length > MAX_CHILDREN) {
+      throw new Error(`A subagent batch must contain between 1 and ${MAX_CHILDREN} children.`)
+    }
+    if (sequence + requests.length > MAX_CHILDREN) {
+      throw new Error(`A root session permits at most ${MAX_CHILDREN} child sandboxes.`)
+    }
+    const names = new Set()
+    let total = 0n
+    for (const request of requests) {
+      validateDelegation(request, names)
+      names.add(request.name)
+      total += request.amount
+    }
+    const parentBalance = await input.rootAccount.getTokenBalance(USDT_ADDRESS)
+    if (total > parentBalance) {
+      throw new Error(`Insufficient parent USDT balance: requested ${total}, available ${parentBalance} base units.`)
+    }
+    return { total, available: parentBalance }
+  })
+
+  const delegate = async ({ name, amount }, hooks = {}) => serializeRoot(async () => {
+    hooks.assertOpen?.()
+    validateDelegation({ name, amount })
+    if (sequence >= MAX_CHILDREN) {
+      throw new Error(`A root session permits at most ${MAX_CHILDREN} child sandboxes.`)
     }
 
     const parentBalance = await input.rootAccount.getTokenBalance(USDT_ADDRESS)
@@ -290,6 +333,7 @@ export function createSandboxHierarchy (input) {
         gasReserveWei: null,
         status: 'provisioning',
         disposalStatus: 'active',
+        cleanupStatus: 'pending',
         createdAt: input.now(),
         closedAt: null,
         agentStatus: 'not_started',
@@ -311,6 +355,7 @@ export function createSandboxHierarchy (input) {
     await notify(hooks)
 
     try {
+      hooks.assertOpen?.()
       const childTokenQuote = await wallet.account.quoteTransfer({
         token: USDT_ADDRESS,
         recipient: input.rootAddress,
@@ -352,6 +397,7 @@ export function createSandboxHierarchy (input) {
       const ethFunding = transactionRecord('ETH', gasReserve, address, parentNativeQuote.fee)
       node.record.transactions.funding.eth = ethFunding
       await notify(hooks)
+      hooks.assertOpen?.()
       const ethResult = await input.rootAccount.sendTransaction({ to: address, value: gasReserve })
       ethFunding.transactionHash = ethResult.hash
       ethFunding.feeWei = ethResult.fee.toString()
@@ -364,6 +410,7 @@ export function createSandboxHierarchy (input) {
       const usdtFunding = transactionRecord('USDT', amount, address, parentTokenQuote.fee)
       node.record.transactions.funding.usdt = usdtFunding
       await notify(hooks)
+      hooks.assertOpen?.()
       const usdtResult = await input.rootAccount.transfer({
         token: USDT_ADDRESS,
         recipient: address,
@@ -390,21 +437,35 @@ export function createSandboxHierarchy (input) {
     }
   })
 
-  const close = (name, hooks = {}) => serialize(async () => {
+  const close = (name, hooks = {}) => {
     const node = [...children.values()].find((child) => child.record.name === name)
     if (!node) throw new Error(`Child sandbox "${name}" does not exist.`)
-    return closeNode(node, hooks)
-  })
+    return serializeChild(node.record.id, async () => {
+      if (node.record.status === 'closed') return publicNode(node)
+      node.record.cleanupStatus = 'running'
+      await notify(hooks)
+      try {
+        return await closeNode(node, hooks)
+      } catch (error) {
+        node.record.cleanupStatus = 'failed'
+        try { await notify(hooks) } catch {}
+        throw error
+      }
+    })
+  }
 
-  const closeAll = (hooks = {}) => serialize(async () => {
-    const closed = []
-    for (const node of children.values()) {
-      if (node.record.status !== 'closed') closed.push(await closeNode(node, hooks))
+  const closeAll = async (hooks = {}) => {
+    const open = [...children.values()].filter((node) => node.record.status !== 'closed')
+    const settled = await Promise.allSettled(open.map((node) => close(node.record.name, hooks)))
+    const failures = settled.filter((result) => result.status === 'rejected')
+    if (failures.length > 0) {
+      throw new AggregateError(failures.map((result) => result.reason),
+        `${failures.length} child sandbox cleanup operation${failures.length === 1 ? '' : 's'} failed.`)
     }
-    return closed
-  })
+    return settled.map((result) => result.value)
+  }
 
-  const updateAgent = (name, update, hooks = {}) => serialize(async () => {
+  const updateAgent = (name, update, hooks = {}) => serializeMetadata(async () => {
     const node = [...children.values()].find((child) => child.record.name === name)
     if (!node) throw new Error(`Child sandbox "${name}" does not exist.`)
     Object.assign(node.record, update)
@@ -417,9 +478,10 @@ export function createSandboxHierarchy (input) {
     if (!node || node.record.status !== 'open' || !node.wallet || node.wallet.disposed) {
       throw new Error(`Child sandbox "${name}" is not open.`)
     }
+    const { hierarchy: ignoredHierarchy, ...childOptions } = options
     return createService(node.wallet.seed, input.config, node.record.address, {
-      ...options,
-      runFinancial: input.runFinancial,
+      ...childOptions,
+      runFinancial: (operation) => serializeChild(node.record.id, operation),
       sandboxIdentity: {
         id: node.record.id,
         name: node.record.name,
@@ -432,11 +494,24 @@ export function createSandboxHierarchy (input) {
 
   const restore = async (tree) => {
     if (!tree?.nodes) return
-    for (const record of tree.nodes.filter((entry) => entry.id !== ROOT_ID)) {
+    const records = tree.nodes.filter((entry) => entry.id !== ROOT_ID)
+    const ids = new Set()
+    const names = new Set()
+    const addresses = new Set()
+    if (tree.rootId !== ROOT_ID || records.length > MAX_CHILDREN) {
+      throw new Error('The authenticated child sandbox tree is invalid.')
+    }
+    for (const record of records) {
       const match = /^root\/(\d+)$/.exec(record.id)
-      if (!match || record.parentId !== ROOT_ID || !CHILD_NAME_PATTERN.test(record.name)) {
+      const address = String(record.address).toLowerCase()
+      if (!match || Number(match[1]) < 1 || Number(match[1]) > MAX_CHILDREN ||
+        record.parentId !== ROOT_ID || !CHILD_NAME_PATTERN.test(record.name) ||
+        ids.has(record.id) || names.has(record.name) || addresses.has(address)) {
         throw new Error('The authenticated child sandbox tree is invalid.')
       }
+      ids.add(record.id)
+      names.add(record.name)
+      addresses.add(address)
       sequence = Math.max(sequence, Number(match[1]))
       if (children.has(record.id)) continue
       if (record.status === 'closed' && record.disposalStatus === 'disposed') {
@@ -444,8 +519,8 @@ export function createSandboxHierarchy (input) {
         continue
       }
       const wallet = await createWallet(record.id)
-      const address = await wallet.account.getAddress()
-      if (address.toLowerCase() !== record.address.toLowerCase()) {
+      const walletAddress = await wallet.account.getAddress()
+      if (walletAddress.toLowerCase() !== record.address.toLowerCase()) {
         disposeWallet(wallet)
         throw new Error('A recovered child sandbox address does not match its authenticated journal.')
       }
@@ -465,5 +540,15 @@ export function createSandboxHierarchy (input) {
     if (disposalError) throw disposalError
   }
 
-  return { snapshot, delegate, close, closeAll, updateAgent, openChildMcp, restore, dispose }
+  return {
+    snapshot,
+    preflightDelegation,
+    delegate,
+    close,
+    closeAll,
+    updateAgent,
+    openChildMcp,
+    restore,
+    dispose
+  }
 }

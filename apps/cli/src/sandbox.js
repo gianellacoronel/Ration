@@ -5,7 +5,11 @@ import WalletManagerEvm from '@tetherto/wdk-wallet-evm'
 
 import { USDT_ADDRESS } from './config.js'
 import { createSandboxMcpService } from './mcp.js'
-import { createSandboxHierarchy } from './sandbox-hierarchy.js'
+import {
+  createSandboxHierarchy,
+  MAX_CHILDREN,
+  MAX_CHILD_FINANCIAL_WRITES
+} from './sandbox-hierarchy.js'
 
 const FUNDING_TIMEOUT_MS = 180000
 const CHAIN_POLL_MS = 1000
@@ -22,6 +26,22 @@ export function lifecycleGasReserve (tokenFee, nativeFee, paymentCount = 1, nati
     nativeFee * BigInt(nativeTransferCount)
   return (fee * GAS_RESERVE_NUMERATOR + GAS_RESERVE_DENOMINATOR - 1n) /
     GAS_RESERVE_DENOMINATOR
+}
+
+export function hierarchicalGasReserve (tokenFee, nativeFee, rootPaymentCount) {
+  const childReserve = lifecycleGasReserve(
+    tokenFee,
+    nativeFee,
+    MAX_CHILD_FINANCIAL_WRITES,
+    1
+  )
+  const rootReserve = lifecycleGasReserve(
+    tokenFee,
+    nativeFee,
+    rootPaymentCount + MAX_CHILDREN,
+    1 + MAX_CHILDREN
+  )
+  return rootReserve + childReserve * BigInt(MAX_CHILDREN)
 }
 
 async function confirmedTransaction (account, hash) {
@@ -112,6 +132,7 @@ export async function createEphemeralSandbox (config, options = {}) {
         { ...mcpOptions, hierarchy, runFinancial }
       ),
       delegateBudget: (input, hooks) => hierarchy.delegate(input, hooks),
+      preflightDelegation: (inputs, hooks) => hierarchy.preflightDelegation(inputs, hooks),
       closeChild: (name, hooks) => hierarchy.close(name, hooks),
       closeChildren: (hooks) => hierarchy.closeAll(hooks),
       openChildMcp: (name, mcpOptions = {}) => hierarchy.openChildMcp(

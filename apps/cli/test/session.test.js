@@ -122,10 +122,8 @@ test('finalizes totals and renders purchases, transfers, returns, and disposal',
   assert.equal(receipt.unrecoveredUsdtBaseUnits, '0')
   assert.match(lines, /Session 11111111/)
   assert.match(lines, /root\s+0\.10 USDT/)
-  assert.match(lines, /├── research\s+0\.02 USDT/)
-  assert.match(lines, /│   spent\s+0\.00 USDT/)
-  assert.match(lines, /│   returned\s+0\.02 USDT/)
-  assert.match(lines, /└── root available\s+0\.03 USDT/)
+  assert.match(lines, /├── research\s+0\.02\s+spent 0\.00/)
+  assert.match(lines, /└── root unused\s+0\.08 USDT/)
   assert.match(lines, /Total spent\s+0\.07 USDT/)
   assert.match(lines, /Returned\s+0\.03 USDT/)
 
@@ -139,40 +137,58 @@ test('finalizes totals and renders purchases, transfers, returns, and disposal',
   assert.doesNotMatch(details, /schemaVersion|amountBaseUnits|transactions":/)
 })
 
-test('renders the one-child acceptance financial tree', () => {
+test('renders the three-child acceptance financial tree', () => {
   const value = session({ budgetBaseUnits: 500000n })
-  value.receipt.usdtReturnedToTreasuryBaseUnits = '440000'
+  value.receipt.usdtReturnedToTreasuryBaseUnits = '410000'
   value.receipt.sandboxTree = {
     rootId: 'root',
     nodes: [{
       id: 'root', name: 'root', parentId: null, address: '0xroot', status: 'open'
     }, {
       id: 'root/1',
-      name: 'research',
+      name: 'provider-a',
       parentId: 'root',
-      address: '0xresearch',
-      delegatedBudgetBaseUnits: '200000',
-      usdtReturnedToParentBaseUnits: '140000',
+      address: '0xprovider-a',
+      delegatedBudgetBaseUnits: '100000',
+      usdtReturnedToParentBaseUnits: '70000',
+      status: 'closed',
+      disposalStatus: 'disposed'
+    }, {
+      id: 'root/2',
+      name: 'provider-b',
+      parentId: 'root',
+      address: '0xprovider-b',
+      delegatedBudgetBaseUnits: '100000',
+      usdtReturnedToParentBaseUnits: '60000',
+      status: 'closed',
+      disposalStatus: 'disposed'
+    }, {
+      id: 'root/3',
+      name: 'provider-c',
+      parentId: 'root',
+      address: '0xprovider-c',
+      delegatedBudgetBaseUnits: '100000',
+      usdtReturnedToParentBaseUnits: '80000',
       status: 'closed',
       disposalStatus: 'disposed'
     }]
   }
   const receipt = finalizeSessionReceipt(value, {
     initialUsdtBalance: 500000n,
-    finalUsdtBalance: 440000n
+    finalUsdtBalance: 410000n
   })
 
   assert.equal(renderSessionSummary(receipt).join('\n'), [
     'Session 11111111',
     '',
     'root                 0.50 USDT',
-    '├── research         0.20 USDT',
-    '│   spent            0.06 USDT',
-    '│   returned         0.14 USDT',
-    '└── root available   0.44 USDT',
+    '├── provider-a       0.10   spent 0.03',
+    '├── provider-b       0.10   spent 0.04',
+    '├── provider-c       0.10   spent 0.02',
+    '└── root unused      0.20 USDT',
     '',
-    'Total spent          0.06 USDT',
-    'Returned             0.44 USDT'
+    'Total spent          0.09 USDT',
+    'Returned             0.41 USDT'
   ].join('\n'))
 })
 

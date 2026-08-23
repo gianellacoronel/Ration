@@ -27,6 +27,14 @@ async function recoverOne (storedJournal, standard, options, output) {
   let releaseSessionLease
   try {
     const journal = verifySessionJournal(storedJournal, recovery.journalKey)
+    let journalWrite = Promise.resolve()
+    const saveJournal = () => {
+      const snapshot = structuredClone(journal)
+      const write = () => persistJournal(snapshot, recovery.journalKey, options)
+      const result = journalWrite.then(write, write)
+      journalWrite = result.catch(() => {})
+      return result
+    }
     if (['complete', 'recovered'].includes(journal.lifecycle.state)) {
       output.log(`Session ${shortSessionId(journal.sessionId)} is already complete; no funds were moved.`)
       return true
@@ -38,7 +46,7 @@ async function recoverOne (storedJournal, standard, options, output) {
     }
 
     transitionSessionJournal(journal, 'sweeping', {}, options)
-    await persistJournal(journal, recovery.journalKey, options)
+    await saveJournal()
 
     const unsettledFunding = new Set()
     for (const [asset, funding] of Object.entries(journal.transactions.funding)) {
@@ -52,7 +60,7 @@ async function recoverOne (storedJournal, standard, options, output) {
       } catch (error) {
         if (error?.transactionSettled) {
           funding.status = 'failed_on_chain'
-          await persistJournal(journal, recovery.journalKey, options)
+          await saveJournal()
         } else {
           unsettledFunding.add(asset)
         }
@@ -69,7 +77,7 @@ async function recoverOne (storedJournal, standard, options, output) {
           await sandbox.waitForTransaction?.(previousUsdtReturn.transactionHash)
           previousUsdtReturn.status = 'confirmed'
           previousUsdtReturn.amountBaseUnits = previousUsdtReturn.attemptedAmountBaseUnits ?? previousUsdtReturn.amountBaseUnits
-          await persistJournal(journal, recovery.journalKey, options)
+          await saveJournal()
         } catch (error) {
           if (!error?.transactionSettled) unsettledReturns.add('usdt')
         }
@@ -84,18 +92,25 @@ async function recoverOne (storedJournal, standard, options, output) {
       try {
         await sandbox.waitForTransaction?.(transaction.transactionHash)
         transaction.status = 'confirmed'
-        await persistJournal(journal, recovery.journalKey, options)
+        await saveJournal()
       } catch (error) {
         if (!error?.transactionSettled) unsettledReturns.add('eth')
       }
     }
 
     if (journal.sandboxTree) {
+      for (const node of journal.sandboxTree.nodes ?? []) {
+        if (node.parentId === 'root' && node.agentStatus === 'running') {
+          node.agentStatus = 'interrupted_after_crash'
+          node.agentFinishedAt = (options.now?.() ?? new Date()).toISOString()
+        }
+      }
+      await saveJournal()
       await sandbox.restoreHierarchy?.(journal.sandboxTree)
       await sandbox.closeChildren?.({
         onChange: async (tree) => {
           journal.sandboxTree = tree
-          await persistJournal(journal, recovery.journalKey, options)
+          await saveJournal()
         }
       })
     }
@@ -129,7 +144,7 @@ async function recoverOne (storedJournal, standard, options, output) {
             remainingBaseUnits: null,
             status: transaction.status
           }
-          await persistJournal(journal, recovery.journalKey, options)
+          await saveJournal()
         }
       })
       if ((usdtSweep.remaining ?? 0n) > 0n || usdtSweep.amount === 0n) {
@@ -144,7 +159,7 @@ async function recoverOne (storedJournal, standard, options, output) {
       remainingBaseUnits: usdtSweep.remaining?.toString() ?? null,
       status: usdtSweep.amount > 0n ? 'confirmed' : 'not_needed'
     }
-    await persistJournal(journal, recovery.journalKey, options)
+    await saveJournal()
 
     const ethSweep = await sandbox.sweepEth(journal.treasuryAddress, {
       onTransactions: async (transactions) => {
@@ -155,7 +170,7 @@ async function recoverOne (storedJournal, standard, options, output) {
           feeWei: transaction.fee.toString(),
           status: transaction.status
         }))
-        await persistJournal(journal, recovery.journalKey, options)
+        await saveJournal()
       }
     })
     journal.transactions.returns.eth = (ethSweep.transactions ?? []).map((transaction) => ({
@@ -165,7 +180,7 @@ async function recoverOne (storedJournal, standard, options, output) {
       feeWei: transaction.fee.toString(),
       status: transaction.status ?? 'confirmed'
     }))
-    await persistJournal(journal, recovery.journalKey, options)
+    await saveJournal()
 
     sandbox.dispose()
     sandbox = undefined
@@ -199,7 +214,7 @@ async function recoverOne (storedJournal, standard, options, output) {
     await persistReceipt(receipt, options)
 
     transitionSessionJournal(journal, 'recovered', {}, options)
-    await persistJournal(journal, recovery.journalKey, options)
+    await saveJournal()
     output.log(`  Returned   ${formatUsdtBaseUnits(usdtSweep.amount)}`)
     output.log(`  Gas back   ${formatEthBaseUnits(ethSweep.amount)}`)
     output.log('  Status     recovered and disposed')

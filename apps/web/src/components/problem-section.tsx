@@ -6,13 +6,13 @@ export function ProblemSection() {
       <div className="mx-auto max-w-content">
         <div className="grid gap-8 tablet:grid-cols-[1.25fr_0.75fr] tablet:items-end">
           <div>
-            <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">The mismatch / work versus access</p>
+            <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">The problem / temporary job, permanent access</p>
             <h2 id="problem-title" className="display-type section-title max-w-[14ch] text-foreground">
-              Software runs one job. Wallet access outlives it.
+              Agents have temporary jobs. Their wallet access shouldn&apos;t be permanent.
             </h2>
           </div>
           <p className="max-w-sm border-l-2 border-ration-orange pl-5 text-base leading-7 text-muted">
-            A process may need to pay once. A wallet is a reusable identity, a balance, and a set of credentials that remain valuable after the process exits.
+            A task might need $5. That doesn&apos;t mean the agent needs your wallet.
           </p>
         </div>
 
@@ -43,11 +43,11 @@ export function ProblemSection() {
               <span className="absolute top-1/2 right-0 left-0 h-0.5 bg-ration-orange" />
               <div className="relative flex min-h-28 items-center px-3 mobile:px-6"><KeyRound className="bg-background pr-2 text-ration-orange" size={28} /></div>
               <div className="relative flex min-h-28 items-center justify-center"><span className="bg-background px-3 font-mono text-[0.6rem] uppercase tracking-[0.1em]">available</span></div>
-              <div className="relative flex min-h-28 items-center justify-end px-3 mobile:px-6"><span className="bg-background pl-3 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-ration-orange">still valuable →</span></div>
+              <div className="relative flex min-h-28 items-center justify-end px-3 mobile:px-6"><span className="bg-background pl-3 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-ration-orange">still available →</span></div>
             </div>
           </div>
         </div>
-        <p className="hand-type mt-5 text-right text-2xl text-muted mobile:text-3xl">the job has an ending. access often doesn&apos;t.</p>
+        <p className="hand-type mt-5 text-right text-2xl text-muted mobile:text-3xl">give the run a budget. end access when it ends.</p>
       </div>
     </section>
   );

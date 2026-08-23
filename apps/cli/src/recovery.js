@@ -177,7 +177,7 @@ function journalSandboxTree (tree) {
     nodes: (tree.nodes ?? []).map((node) => ({
       ...allowlistedObject(node, [
         'id', 'name', 'parentId', 'address', 'delegatedBudgetBaseUnits',
-        'gasReserveWei', 'status', 'disposalStatus', 'createdAt', 'closedAt',
+        'gasReserveWei', 'status', 'disposalStatus', 'cleanupStatus', 'createdAt', 'closedAt',
         'agentStatus', 'agentExitCode', 'agentSignal', 'agentStartedAt', 'agentFinishedAt',
         'usdtReturnedToParentBaseUnits', 'ethReturnedToParentWei',
         'finalUsdtBalanceBaseUnits', 'finalEthBalanceWei'
@@ -351,6 +351,12 @@ export async function persistSessionJournal (journal, journalKey, options = {}) 
 }
 
 function validateJournalShape (journal, requireIntegrity = true) {
+  const childNodes = journal?.sandboxTree?.nodes?.filter((node) => node.parentId !== null) ?? []
+  const validTree = childNodes.length <= 3 && childNodes.every((node) =>
+    /^root\/[1-3]$/.test(node.id) && node.parentId === 'root') &&
+    new Set(childNodes.map((node) => node.id)).size === childNodes.length &&
+    new Set(childNodes.map((node) => node.name)).size === childNodes.length &&
+    new Set(childNodes.map((node) => String(node.address).toLowerCase())).size === childNodes.length
   return journal?.schemaVersion === JOURNAL_SCHEMA_VERSION &&
     SESSION_ID_PATTERN.test(journal.sessionId) &&
     typeof journal.sandboxAddress === 'string' &&
@@ -359,6 +365,7 @@ function validateJournalShape (journal, requireIntegrity = true) {
     /^\d+$/.test(journal.gasReserveWei) &&
     typeof journal.lifecycle?.state === 'string' &&
     typeof journal.lifecycle?.createdAt === 'string' &&
+    validTree &&
     (journal.owner?.pid === null || Number.isInteger(journal.owner?.pid)) &&
     (!requireIntegrity || typeof journal.integrity?.value === 'string')
 }

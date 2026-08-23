@@ -18,18 +18,21 @@ import { z } from 'zod'
 import { USDT_ADDRESS } from './config.js'
 import {
   DemoPaymentError,
+  MAX_DEMO_RESOURCE_PURCHASES,
   parseCatalogPayload,
   purchaseResourceViaDemoApi,
   resolveDemoOrigin
 } from './demo.js'
 import { formatEthBaseUnits, formatUsdtBaseUnits, parseUsdt } from './domain.js'
 import { runSubagentCommand } from './processes.js'
+import { MAX_CHILDREN } from './sandbox-hierarchy.js'
 
 const CHAIN = 'sepolia'
 const SERVER_NAME = 'ration'
 const TRANSACTION_TIMEOUT_MS = 180000
 const TRANSACTION_POLL_MS = 1000
 const MCP_TOOL_TIMEOUT_SECONDS = 1800
+const MAX_ROOT_FINANCIAL_WRITES = MAX_DEMO_RESOURCE_PURCHASES + 1
 const CONFIRMED_TRANSFER = Symbol('confirmedTransfer')
 export const FINANCIAL_SESSION_EXPIRED_MESSAGE = 'Ration financial session expired. No further spending is allowed.'
 
@@ -55,7 +58,7 @@ function confirmTokenTransfers (server, pending, session, paymentContext, paymen
       if (rejection) throw new Error(rejection)
       const execute = async () => {
         if (financialWrites >= (serviceOptions.maxFinancialWrites ?? Infinity)) {
-          throw new Error(`This child sandbox permits at most ${serviceOptions.maxFinancialWrites} financial writes.`)
+          throw new Error(`This sandbox permits at most ${serviceOptions.maxFinancialWrites} financial writes.`)
         }
         financialWrites++
         const context = paymentContext.getStore()
@@ -112,7 +115,7 @@ function subagentInvocation (command, commandArgs, task) {
 }
 
 function registerHierarchyTools (server, options, pending) {
-  if (!options.hierarchy) return { expireChild: async () => {} }
+  if (!options.hierarchy) return { expireChildren: async () => {} }
   const childName = z.string().regex(
     /^[a-z][a-z0-9-]{0,31}$/,
     'Must start with a lowercase letter and contain only lowercase letters, digits, or hyphens'
@@ -121,119 +124,231 @@ function registerHierarchyTools (server, options, pending) {
     options.session?.setSandboxTree?.(tree)
     await options.session?.flushActivity?.()
   }
+  const activeChildren = new Map()
   let spawning = false
-  let activeChildMcp
-  let activeChildController
 
-  const spawnSubagent = async ({ name, budget, task }) => {
+  const boundedText = (value, fallback) => {
+    const text = String(value ?? '').trim() || fallback
+    return text.length <= 65536 ? text : `${text.slice(0, 65536)}\n[truncated]`
+  }
+  const rejectionError = () => {
     const rejection = options.paymentRejection?.()
-    if (rejection) return toolError(new Error(rejection))
-    if (spawning) return toolError(new Error('A child subagent is already running.'))
-    spawning = true
-    let delegated = false
+    if (rejection) throw new Error(rejection)
+  }
+  const closeProvisioningFailure = async (agent, error) => {
+    const node = options.hierarchy.snapshot().nodes.find((entry) => entry.name === agent.name)
+    let cleanupStatus = node ? 'failed' : 'not_started'
+    if (node) {
+      try {
+        await options.hierarchy.updateAgent(agent.name, {
+          agentStatus: 'failed',
+          agentFinishedAt: options.session?.now?.() ?? new Date().toISOString()
+        }, { onChange: syncTree })
+      } catch {}
+      try {
+        await options.hierarchy.close(agent.name, { onChange: syncTree })
+        cleanupStatus = 'closed'
+      } catch {}
+    }
+    const closedNode = options.hierarchy.snapshot().nodes.find((entry) => entry.name === agent.name)
+    const returned = BigInt(closedNode?.usdtReturnedToParentBaseUnits ?? 0)
+    const funded = closedNode?.transactions?.funding?.usdt?.status === 'confirmed'
+      ? BigInt(closedNode.transactions.funding.usdt.amountBaseUnits)
+      : returned
+    return {
+      name: agent.name,
+      result: '',
+      error: boundedText(error?.message, 'Child wallet provisioning failed.'),
+      budget: formatUsdtBaseUnits(agent.amount).replace(/ USDT$/, ''),
+      spent: cleanupStatus === 'closed'
+        ? formatUsdtBaseUnits(funded - returned).replace(/ USDT$/, '')
+        : 'unknown',
+      returned: formatUsdtBaseUnits(returned).replace(/ USDT$/, ''),
+      agentStatus: 'failed',
+      cleanupStatus
+    }
+  }
+  const runChild = async (agent) => {
     let childMcp
     let agentResult
-    let operationError
+    let executionError
+    let cleanupError
+    const controller = new AbortController()
+    activeChildren.set(agent.name, { controller })
     try {
-      const amount = parseUsdt(budget)
-      await options.hierarchy.delegate({ name, amount }, { onChange: syncTree })
-      delegated = true
-      await options.hierarchy.updateAgent(name, {
+      await options.hierarchy.updateAgent(agent.name, {
         agentStatus: 'running',
         agentStartedAt: options.session?.now?.() ?? new Date().toISOString()
       }, { onChange: syncTree })
-      activeChildController = new AbortController()
-      childMcp = await options.hierarchy.openChildMcp(name, createSandboxMcpService, {
+      childMcp = await options.hierarchy.openChildMcp(agent.name, createSandboxMcpService, {
         ...options.childMcpOptions,
         session: options.session
       })
-      activeChildMcp = childMcp
+      activeChildren.get(agent.name).mcp = childMcp
       const afterProvisioningRejection = options.paymentRejection?.()
-      if (afterProvisioningRejection || activeChildController.signal.aborted) {
+      if (afterProvisioningRejection || controller.signal.aborted) {
         throw new Error(afterProvisioningRejection ?? FINANCIAL_SESSION_EXPIRED_MESSAGE)
       }
       const invocation = subagentInvocation(
         options.subagentCommand,
         options.subagentCommandArgs,
-        task
+        agent.task
       )
       const launch = childMcp.configureLaunch(invocation.command, invocation.args)
       const run = options.runSubagentCommand ?? runSubagentCommand
       agentResult = await run(launch.command, launch.args, {
         env: launch.env,
-        signal: activeChildController.signal
+        signal: controller.signal
       })
       if (!Number.isInteger(agentResult?.code) || agentResult.code !== 0) {
         const detail = agentResult?.stderr ? ` ${agentResult.stderr}` : ''
-        throw new Error(`Subagent "${name}" exited unsuccessfully.${detail}`)
+        throw new Error(`Subagent "${agent.name}" exited unsuccessfully.${detail}`)
       }
-      await options.hierarchy.updateAgent(name, {
+      await options.hierarchy.updateAgent(agent.name, {
         agentStatus: 'exited',
         agentExitCode: agentResult.code,
         agentSignal: agentResult.signal ?? null,
         agentFinishedAt: options.session?.now?.() ?? new Date().toISOString()
       }, { onChange: syncTree })
     } catch (error) {
-      operationError = error
-      if (delegated) {
-        try {
-          await options.hierarchy.updateAgent(name, {
-            agentStatus: 'failed',
-            agentExitCode: agentResult?.code ?? null,
-            agentSignal: agentResult?.signal ?? null,
-            agentFinishedAt: options.session?.now?.() ?? new Date().toISOString()
-          }, { onChange: syncTree })
-        } catch {}
-      }
+      executionError = error
+      try {
+        await options.hierarchy.updateAgent(agent.name, {
+          agentStatus: controller.signal.aborted ? 'aborted' : 'failed',
+          agentExitCode: agentResult?.code ?? null,
+          agentSignal: agentResult?.signal ?? null,
+          agentFinishedAt: options.session?.now?.() ?? new Date().toISOString()
+        }, { onChange: syncTree })
+      } catch {}
     } finally {
       if (childMcp) {
-        try { await childMcp.close() } catch (error) { operationError ??= error }
+        try { await childMcp.close() } catch (error) { cleanupError ??= error }
       }
-      activeChildMcp = undefined
-      activeChildController = undefined
-      if (delegated) {
-        try { await options.hierarchy.close(name, { onChange: syncTree }) } catch (error) { operationError ??= error }
+      activeChildren.delete(agent.name)
+      try {
+        await options.hierarchy.close(agent.name, { onChange: syncTree })
+      } catch (error) {
+        cleanupError ??= error
       }
-      spawning = false
     }
-    if (operationError) return toolError(operationError)
-
-    const node = options.hierarchy.snapshot().nodes.find((entry) => entry.name === name)
+    const node = options.hierarchy.snapshot().nodes.find((entry) => entry.name === agent.name)
     const returned = BigInt(node.usdtReturnedToParentBaseUnits)
-    const spent = BigInt(node.delegatedBudgetBaseUnits) - returned
-    const result = agentResult.stdout || 'The child completed without returning textual output.'
+    const financialCleanupComplete = node.status === 'closed' && node.disposalStatus === 'disposed'
+    const cleanupStatus = financialCleanupComplete && !cleanupError ? 'closed' : 'failed'
+    const spent = financialCleanupComplete
+      ? formatUsdtBaseUnits(BigInt(node.delegatedBudgetBaseUnits) - returned).replace(/ USDT$/, '')
+      : 'unknown'
+    const operationError = executionError ?? cleanupError
     return {
-      content: [{ type: 'text', text: result }],
-      structuredContent: {
-        name,
-        result,
-        budget: formatUsdtBaseUnits(node.delegatedBudgetBaseUnits).replace(/ USDT$/, ''),
-        spent: formatUsdtBaseUnits(spent).replace(/ USDT$/, ''),
-        returned: formatUsdtBaseUnits(returned).replace(/ USDT$/, ''),
-        status: 'closed'
+      name: agent.name,
+      result: boundedText(agentResult?.stdout, operationError
+        ? ''
+        : 'The child completed without returning textual output.'),
+      error: operationError ? boundedText(operationError.message, 'The child failed.') : '',
+      budget: formatUsdtBaseUnits(node.delegatedBudgetBaseUnits).replace(/ USDT$/, ''),
+      spent,
+      returned: formatUsdtBaseUnits(returned).replace(/ USDT$/, ''),
+      agentStatus: node.agentStatus === 'exited'
+        ? 'exited'
+        : controller.signal.aborted ? 'aborted' : 'failed',
+      cleanupStatus
+    }
+  }
+
+  const spawnSubagents = async ({ agents }) => {
+    let ownsSpawn = false
+    try {
+      rejectionError()
+      if (spawning) throw new Error('A subagent batch is already running.')
+      spawning = true
+      ownsSpawn = true
+      const parsed = agents.map((agent) => ({ ...agent, amount: parseUsdt(agent.budget) }))
+      await options.hierarchy.preflightDelegation(parsed, { assertOpen: rejectionError })
+      const provisioned = []
+      const results = []
+      for (const agent of parsed) {
+        try {
+          await options.hierarchy.delegate(agent, {
+            onChange: syncTree,
+            assertOpen: rejectionError
+          })
+          provisioned.push(agent)
+        } catch (error) {
+          results.push({ index: parsed.indexOf(agent), value: await closeProvisioningFailure(agent, error) })
+        }
       }
+      const completed = await Promise.allSettled(provisioned.map((agent) => runChild(agent)))
+      for (const [index, outcome] of completed.entries()) {
+        const agent = provisioned[index]
+        results.push({
+          index: parsed.indexOf(agent),
+          value: outcome.status === 'fulfilled'
+            ? outcome.value
+            : await closeProvisioningFailure(agent, outcome.reason)
+        })
+      }
+      const ordered = results.sort((left, right) => left.index - right.index).map((entry) => entry.value)
+      const successful = ordered.filter((agent) =>
+        agent.agentStatus === 'exited' && agent.cleanupStatus === 'closed').length
+      const status = successful === ordered.length
+        ? 'complete'
+        : successful === 0 ? 'failed' : 'partial_failure'
+      const summary = ordered.map((agent) =>
+        `${agent.name}: ${agent.agentStatus}, spent ${agent.spent} USDT, returned ${agent.returned} USDT${agent.error ? `: ${agent.error}` : ''}`).join('\n')
+      const childResults = ordered
+        .filter((agent) => agent.result)
+        .map((agent) => `${agent.name}:\n${agent.result}`)
+        .join('\n\n')
+      return {
+        content: [{ type: 'text', text: childResults ? `${summary}\n\n${childResults}` : summary }],
+        structuredContent: { status, agents: ordered }
+      }
+    } catch (error) {
+      return toolError(error)
+    } finally {
+      if (ownsSpawn) spawning = false
     }
   }
 
   server.registerTool(
-    'ration_spawnSubagent',
+    'ration_spawnSubagents',
     {
-      title: 'Spawn Ration Subagent',
-      description: 'Create one child EOA, move the requested USDT budget to it on-chain, launch one task-only child agent with a wallet-scoped Ration MCP, wait for its result, and return unused USDT and ETH to the parent. The child cannot access the parent wallet, treasury, or subagent tools.',
+      title: 'Spawn Ration Subagents',
+      description: 'Create 1-3 isolated child EOAs, delegate each exact USDT budget on-chain, then launch all task-only child agents concurrently with wallet-scoped Ration MCP servers. Results and independent cleanup outcomes are returned in input order. Children cannot access parent, sibling, or treasury wallets and cannot spawn descendants.',
       inputSchema: z.object({
-        name: childName.describe('A session-local child name, for example "research"'),
-        budget: z.string()
-          .refine((value) => parseUsdt(value) !== null, 'Must be a positive USDT amount with at most 6 decimals')
-          .describe('The exact USDT budget to transfer to the child'),
-        task: z.string().min(1).describe('The task the child agent must complete')
+        agents: z.array(z.object({
+          name: childName.describe('A unique session-local child name, for example "provider-a"'),
+          budget: z.string()
+            .refine((value) => parseUsdt(value) !== null, 'Must be a positive USDT amount with at most 6 decimals')
+            .describe('The exact USDT budget to transfer to this child'),
+          task: z.string().min(1).describe('The only task this child agent receives')
+        })).min(1).max(MAX_CHILDREN)
+          .superRefine((agents, context) => {
+            const names = new Set()
+            for (const [index, agent] of agents.entries()) {
+              if (names.has(agent.name)) {
+                context.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  message: 'Child names must be unique within a batch',
+                  path: [index, 'name']
+                })
+              }
+              names.add(agent.name)
+            }
+          })
       }),
       outputSchema: z.object({
-        name: z.string(),
-        result: z.string(),
-        budget: z.string(),
-        spent: z.string(),
-        returned: z.string(),
-        status: z.literal('closed')
+        status: z.enum(['complete', 'partial_failure', 'failed']),
+        agents: z.array(z.object({
+          name: z.string(),
+          result: z.string(),
+          error: z.string(),
+          budget: z.string(),
+          spent: z.string(),
+          returned: z.string(),
+          agentStatus: z.enum(['exited', 'failed', 'aborted']),
+          cleanupStatus: z.enum(['closed', 'failed', 'not_started'])
+        }))
       }),
       annotations: {
         readOnlyHint: false,
@@ -243,7 +358,7 @@ function registerHierarchyTools (server, options, pending) {
       }
     },
     async (input) => {
-      const operation = spawnSubagent(input)
+      const operation = spawnSubagents(input)
       pending.add(operation)
       try {
         return await operation
@@ -254,9 +369,10 @@ function registerHierarchyTools (server, options, pending) {
   )
 
   return {
-    expireChild: async () => {
-      await activeChildMcp?.expire()
-      activeChildController?.abort('SIGTERM')
+    expireChildren: async () => {
+      const active = [...activeChildren.values()]
+      for (const child of active) child.controller.abort('SIGTERM')
+      await Promise.allSettled(active.map((child) => child.mcp?.expire()))
     }
   }
 }
@@ -541,7 +657,7 @@ const SANDBOX_ENABLED_TOOLS = [
   'getAddress', 'getBalance', 'getTokenBalance', 'transfer',
   'ration_getRemainingBalance', 'ration_getCatalog', 'ration_purchaseResource'
 ]
-const ROOT_ENABLED_TOOLS = [...SANDBOX_ENABLED_TOOLS, 'ration_spawnSubagent']
+const ROOT_ENABLED_TOOLS = [...SANDBOX_ENABLED_TOOLS, 'ration_spawnSubagents']
 
 function configureOpenCode (args, env, bridgeCommand, enabledTools) {
   let inline = {}
@@ -627,7 +743,11 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
     paymentContext,
     paymentRejection,
     options.runFinancial,
-    options
+    {
+      ...options,
+      maxFinancialWrites: options.maxFinancialWrites ??
+        (options.hierarchy ? MAX_ROOT_FINANCIAL_WRITES : undefined)
+    }
   )
   const demoOrigin = resolveDemoOriginImpl(options.demoEnv ?? process.env)
   registerDemoTools(server, demoOrigin, { ...options, paymentContext, paymentRejection })
@@ -643,59 +763,67 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
   let transport
   let accepted = false
   let closed = false
+  let closePromise
+  let expirePromise
 
-  const close = async () => {
-    if (closed) return
-    closed = true
-    if (lifecycle !== 'expired') lifecycle = 'closing'
-    let closeError
-    try {
-      await hierarchyControls.expireChild()
+  const close = () => {
+    closePromise ??= (async () => {
+      closed = true
+      if (lifecycle !== 'expired') lifecycle = 'closing'
+      let closeError
+      try {
+        await hierarchyControls.expireChildren()
+        while (pendingConfirmations.size > 0) {
+          await Promise.allSettled([...pendingConfirmations])
+        }
+      } catch (error) {
+        closeError = error
+      }
+      try {
+        if (options.hierarchy) {
+          await options.hierarchy.closeAll({
+            onChange: async (tree) => {
+              options.session?.setSandboxTree?.(tree)
+              await options.session?.flushActivity?.()
+            }
+          })
+        }
+      } catch (error) {
+        closeError ??= error
+      }
+      try {
+        await server.close()
+      } catch (error) {
+        closeError ??= error
+      }
+      connection?.destroy()
+      try {
+        if (socketServer) await closeSocketServer(socketServer)
+      } catch (error) {
+        closeError ??= error
+      }
+      try {
+        if (directory) await remove(directory, { recursive: true, force: true })
+      } catch (error) {
+        closeError ??= error
+      }
+      if (closeError) throw closeError
+      lifecycle = 'closed'
+    })()
+    return closePromise
+  }
+
+  const expire = () => {
+    if (expirePromise) return expirePromise
+    if (lifecycle !== 'open') return Promise.resolve()
+    lifecycle = 'expired'
+    expirePromise = (async () => {
+      await hierarchyControls.expireChildren()
       while (pendingConfirmations.size > 0) {
         await Promise.allSettled([...pendingConfirmations])
       }
-    } catch (error) {
-      closeError = error
-    }
-    try {
-      if (options.hierarchy) {
-        await options.hierarchy.closeAll({
-          onChange: async (tree) => {
-            options.session?.setSandboxTree?.(tree)
-            await options.session?.flushActivity?.()
-          }
-        })
-      }
-    } catch (error) {
-      closeError ??= error
-    }
-    try {
-      await server.close()
-    } catch (error) {
-      closeError ??= error
-    }
-    connection?.destroy()
-    try {
-      if (socketServer) await closeSocketServer(socketServer)
-    } catch (error) {
-      closeError ??= error
-    }
-    try {
-      if (directory) await remove(directory, { recursive: true, force: true })
-    } catch (error) {
-      closeError ??= error
-    }
-    if (closeError) throw closeError
-    lifecycle = 'closed'
-  }
-
-  const expire = async () => {
-    if (lifecycle !== 'open') return
-    lifecycle = 'expired'
-    await hierarchyControls.expireChild()
-    while (pendingConfirmations.size > 0) {
-      await Promise.allSettled([...pendingConfirmations])
-    }
+    })()
+    return expirePromise
   }
 
   try {

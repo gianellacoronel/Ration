@@ -4,6 +4,7 @@ import test from 'node:test'
 import { USDT_ADDRESS } from '../src/config.js'
 import {
   createEphemeralSandbox,
+  hierarchicalGasReserve,
   lifecycleGasReserve,
   waitForSandboxFunding,
   waitForSandboxGas
@@ -85,6 +86,7 @@ test('quotes a buffered ETH reserve for one payment, USDT sweep, and native clea
 test('sizes lifecycle gas from a higher positive-transfer fee floor', () => {
   assert.equal(lifecycleGasReserve(80000n, 21000n), 226250n)
   assert.equal(lifecycleGasReserve(80000n, 21000n, 4), 526250n)
+  assert.equal(hierarchicalGasReserve(50000n, 21000n, 6), 1933750n)
 })
 
 test('sweeps the full USDT balance before returning economical ETH', async () => {
@@ -298,20 +300,22 @@ test('funding waits stop before a balance read when aborted', async () => {
   assert.equal(reads, 0)
 })
 
-test('delegates a real child balance and reclaims it without exposing the parent balance', async () => {
+test('delegates and reclaims three isolated child balances without exposing parent funds', async () => {
   const seed = new Uint8Array(64).fill(11)
   const seeds = []
   const events = []
   const balances = new Map([
-    ['0xroot', { usdt: 500000n, eth: 1000000n }],
-    ['0xresearch', { usdt: 0n, eth: 0n }]
+    ['0xroot', { usdt: 500000n, eth: 3000000n }],
+    ['0xresearch', { usdt: 0n, eth: 0n }],
+    ['0xpricing', { usdt: 0n, eth: 0n }],
+    ['0xrisk', { usdt: 0n, eth: 0n }]
   ])
   let managerCount = 0
   let transactionCount = 0
 
   class LedgerWalletManager {
     constructor (receivedSeed) {
-      const address = managerCount++ === 0 ? '0xroot' : '0xresearch'
+      const address = ['0xroot', '0xresearch', '0xpricing', '0xrisk'][managerCount++]
       seeds.push(receivedSeed)
       this.account = {
         getAddress: async () => address,
@@ -356,13 +360,21 @@ test('delegates a real child balance and reclaims it without exposing the parent
     seed
   })
 
+  await assert.rejects(sandbox.preflightDelegation([
+    { name: 'a', amount: 200000n },
+    { name: 'b', amount: 200000n },
+    { name: 'c', amount: 200000n }
+  ]), /Insufficient parent USDT balance/)
+  assert.equal(events.length, 0)
+  assert.equal(sandbox.getSandboxTree().nodes.length, 1)
+
   const child = await sandbox.delegateBudget({ name: 'research', amount: 200000n }, {
     onChange: async (tree) => treeUpdates.push(tree)
   })
 
   assert.equal(child.address, '0xresearch')
   assert.equal(child.gasReserveWei, '326250')
-  assert.deepEqual(balances.get('0xroot'), { usdt: 300000n, eth: 622750n })
+  assert.deepEqual(balances.get('0xroot'), { usdt: 300000n, eth: 2622750n })
   assert.deepEqual(balances.get('0xresearch'), { usdt: 200000n, eth: 326250n })
   assert.deepEqual(events.slice(0, 2).map((event) => event.slice(0, 4)), [
     ['eth', '0xroot', '0xresearch', 326250n],
@@ -380,7 +392,7 @@ test('delegates a real child balance and reclaims it without exposing the parent
   assert.equal(closed.disposalStatus, 'disposed')
   assert.equal(closed.usdtReturnedToParentBaseUnits, '200000')
   assert.equal(closed.ethReturnedToParentWei, '275250')
-  assert.deepEqual(balances.get('0xroot'), { usdt: 500000n, eth: 898000n })
+  assert.deepEqual(balances.get('0xroot'), { usdt: 500000n, eth: 2898000n })
   assert.deepEqual(balances.get('0xresearch'), { usdt: 0n, eth: 0n })
   assert.deepEqual(events.slice(2, 4).map((event) => event.slice(0, 4)), [
     ['usdt', '0xresearch', '0xroot', 200000n],
@@ -388,6 +400,23 @@ test('delegates a real child balance and reclaims it without exposing the parent
   ])
   assert.equal(seeds[1].every((byte) => byte === 0), true)
   assert.equal(treeUpdates.at(-1).nodes.find((node) => node.name === 'research').status, 'closed')
+
+  const [pricing, risk] = await Promise.all([
+    sandbox.delegateBudget({ name: 'pricing', amount: 100000n }),
+    sandbox.delegateBudget({ name: 'risk', amount: 100000n })
+  ])
+  assert.deepEqual([pricing.id, risk.id], ['root/2', 'root/3'])
+  assert.notDeepEqual(seeds[2], seeds[3])
+  await assert.rejects(
+    sandbox.delegateBudget({ name: 'fourth', amount: 10000n }),
+    /at most 3 child sandboxes/
+  )
+  const closedChildren = await sandbox.closeChildren()
+  assert.deepEqual(closedChildren.map((node) => node.name), ['pricing', 'risk'])
+  assert.equal(closedChildren.every((node) =>
+    node.status === 'closed' && node.cleanupStatus === 'closed'), true)
+  assert.deepEqual(balances.get('0xroot'), { usdt: 500000n, eth: 2694000n })
+  assert.equal(seeds.slice(1).every((childSeed) => childSeed.every((byte) => byte === 0)), true)
 
   sandbox.dispose()
   assert.equal(seed.every((byte) => byte === 0), true)

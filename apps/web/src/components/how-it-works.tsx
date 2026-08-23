@@ -13,10 +13,10 @@ export function HowItWorks() {
       <div className="mx-auto max-w-content">
         <div className="grid gap-8 tablet:grid-cols-[1fr_auto] tablet:items-end">
           <div>
-            <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">The usual route / manual custody</p>
-            <h2 id="current-way-title" className="display-type section-title max-w-[14ch]">The developer becomes the control plane.</h2>
+            <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">Without Ration / every run is manual</p>
+            <h2 id="current-way-title" className="display-type section-title max-w-[14ch]">A small payment becomes a wallet problem.</h2>
           </div>
-          <p className="max-w-xs border-l pl-5 text-sm leading-6 text-muted">To give software bounded funds, someone has to own every handoff before and after the command runs.</p>
+          <p className="max-w-xs border-l pl-5 text-sm leading-6 text-muted">You fund access, wire it into the job, then clean up what remains.</p>
         </div>
 
         <ol className="relative mt-12 grid gap-0 border-t desktop:grid-cols-4">

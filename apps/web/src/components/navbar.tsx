@@ -38,7 +38,7 @@ export function Navbar() {
   }
 
   return (
-    <header ref={headerRef} className="relative z-50 border-b bg-background">
+    <header ref={headerRef} className="sticky top-0 z-50 border-b bg-background">
       <div className="mx-auto flex h-18 max-w-content items-center justify-between px-gutter">
         <Link
           href="/"

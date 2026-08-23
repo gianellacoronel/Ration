@@ -72,7 +72,7 @@
 @keyframes ration-cursor-blink { 50% { opacity: 0; } }
 
 * { border-color: var(--ration-border); }
-html { background: var(--ration-bg); scroll-behavior: smooth; }
+html { background: var(--ration-bg); scroll-behavior: smooth; scroll-padding-top: 4.5rem; }
 body {
   background: var(--ration-bg);
   color: var(--ration-fg);

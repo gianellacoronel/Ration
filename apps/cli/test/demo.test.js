@@ -15,23 +15,29 @@ const ORIGIN = 'https://demo.ration.test'
 const SELLER = '0x1111111111111111111111111111111111111111'
 const TX_HASH = `0x${'a'.repeat(64)}`
 
+function resource (id, amount, amountBaseUnits) {
+  return {
+    id,
+    name: `${id} resource`,
+    description: `Deterministic information from ${id}.`,
+    provides: [`${id} facts`, `${id} metrics`],
+    method: 'GET',
+    path: `/api/demo/${id}`,
+    price: { amount, amountBaseUnits, currency: 'USDT', decimals: 6 }
+  }
+}
+
 function catalog (overrides = {}) {
   return {
     seller: { address: SELLER, label: 'Ration demo seller' },
     network: { name: 'sepolia', chainId: 11155111 },
     token: { symbol: 'USDT', address: USDT_ADDRESS, decimals: 6 },
-    resources: [{
-      id: 'company-intel',
-      name: 'Company intelligence report',
-      method: 'GET',
-      path: '/api/demo/company-intel',
-      price: {
-        amount: '0.02',
-        amountBaseUnits: '20000',
-        currency: 'USDT',
-        decimals: 6
-      }
-    }],
+    resources: [
+      resource('market-snapshot', '0.01', '10000'),
+      resource('company-intel', '0.03', '30000'),
+      resource('deep-research', '0.06', '60000'),
+      resource('premium-dataset', '0.5', '500000')
+    ],
     ...overrides
   }
 }
@@ -45,8 +51,8 @@ function paymentRequired (overrides = {}) {
       network: { name: 'sepolia', chainId: 11155111 },
       token: { symbol: 'USDT', address: USDT_ADDRESS, decimals: 6 },
       payToAddress: SELLER,
-      amount: '0.02',
-      amountBaseUnits: '20000',
+      amount: '0.03',
+      amountBaseUnits: '30000',
       ...overrides
     }
   }
@@ -99,12 +105,12 @@ test('purchases the catalog resource with the sandbox account and retries with i
 
   assert.deepEqual(result, {
     payload: { resource: 'company-intel', intel: { company: 'Acme' } },
-    paidBaseUnits: 20000n,
+    paidBaseUnits: 30000n,
     txHash: TX_HASH
   })
   assert.deepEqual(events, [
     ['balance', USDT_ADDRESS],
-    ['transfer', { token: USDT_ADDRESS, recipient: SELLER, amount: 20000n }],
+    ['transfer', { token: USDT_ADDRESS, recipient: SELLER, amount: 30000n }],
     ['confirm', TX_HASH, { target: 'confirmed', timeout: 120000, interval: 1000 }],
     ['wait', 500]
   ])
@@ -145,13 +151,39 @@ test('checks the sandbox balance before broadcasting', async () => {
     origin: ORIGIN,
     resourceId: 'company-intel',
     account: {
-      getTokenBalance: async () => 19999n,
+      getTokenBalance: async () => 29999n,
       transfer: async () => { transferred = true }
     },
     fetchImpl: async () => replies.shift()
   }), (error) => error instanceof DemoPaymentError &&
     error.code === 'insufficient_sandbox_balance')
   assert.equal(transferred, false)
+})
+
+test('recognizes a listed resource that exceeds the sandbox balance', async () => {
+  let transferred = false
+  const replies = [
+    response(200, catalog()),
+    response(402, paymentRequired({ amount: '0.5', amountBaseUnits: '500000' }))
+  ]
+  await assert.rejects(purchaseResourceViaDemoApi({
+    origin: ORIGIN,
+    resourceId: 'premium-dataset',
+    account: {
+      getTokenBalance: async () => 100000n,
+      transfer: async () => { transferred = true }
+    },
+    fetchImpl: async () => replies.shift()
+  }), (error) => error instanceof DemoPaymentError &&
+    error.code === 'insufficient_sandbox_balance' &&
+    /available 0\.1, required 0\.5/.test(error.message))
+  assert.equal(transferred, false)
+})
+
+test('requires neutral resource descriptions and information coverage in the catalog', () => {
+  const malformed = catalog()
+  delete malformed.resources[0].provides
+  assert.throws(() => parseCatalogPayload(malformed), /malformed resource entry/)
 })
 
 test('keeps catalog resource paths and API requests on the configured origin', async () => {
@@ -168,9 +200,28 @@ test('keeps catalog resource paths and API requests on the configured origin', a
     fetchImpl: async () => {
       requests++
       return response(200, catalog({
-        resources: [{ ...catalog().resources[0], path: '//evil.example/resource' }]
+        resources: [{ ...catalog().resources[1], path: '/api/demo/market-snapshot' }]
       }))
     }
-  }), /off the configured origin/)
+  }), /malformed resource entry/)
   assert.equal(requests, 1)
+})
+
+test('rejects an unlocked payload that does not match the purchased resource', async () => {
+  const replies = [
+    response(200, catalog()),
+    response(402, paymentRequired()),
+    response(200, { resource: 'market-snapshot', snapshot: {} })
+  ]
+  await assert.rejects(purchaseResourceViaDemoApi({
+    origin: ORIGIN,
+    resourceId: 'company-intel',
+    account: {
+      getTokenBalance: async () => 100000n,
+      transfer: async () => ({ hash: TX_HASH }),
+      waitForTransaction: async () => ({ finality: 'confirmed', success: true })
+    },
+    fetchImpl: async () => replies.shift()
+  }), (error) => error instanceof DemoPaymentError &&
+    error.txHash === TX_HASH && /different resource/.test(error.message))
 })

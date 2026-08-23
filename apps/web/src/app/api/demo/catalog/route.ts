@@ -1,9 +1,8 @@
 import {
-  RESOURCE_ID,
-  RESOURCE_PATH,
   USDT_DECIMALS,
   loadDemoConfig,
 } from "@/lib/demo/config";
+import { DEMO_RESOURCES } from "@/lib/demo/resources";
 import { formatUsdtBaseUnits } from "@/lib/demo/verification";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +16,7 @@ export async function GET() {
     );
   }
 
-  const { config, priceBaseUnits } = loaded;
+  const { config } = loaded;
 
   return Response.json({
     seller: {
@@ -33,21 +32,19 @@ export async function GET() {
       address: config.usdtAddress,
       decimals: USDT_DECIMALS,
     },
-    resources: [
-      {
-        id: RESOURCE_ID,
-        name: "Company intelligence report",
-        description:
-          "A structured company-intelligence dossier. Unlocked by paying the listed price in test USDT.",
-        method: "GET",
-        path: RESOURCE_PATH,
-        price: {
-          amount: formatUsdtBaseUnits(priceBaseUnits),
-          amountBaseUnits: priceBaseUnits.toString(),
-          currency: "USDT",
-          decimals: USDT_DECIMALS,
-        },
+    resources: DEMO_RESOURCES.map((resource) => ({
+      id: resource.id,
+      name: resource.name,
+      description: resource.description,
+      provides: resource.provides,
+      method: resource.method,
+      path: resource.path,
+      price: {
+        amount: formatUsdtBaseUnits(resource.priceBaseUnits),
+        amountBaseUnits: resource.priceBaseUnits.toString(),
+        currency: "USDT",
+        decimals: USDT_DECIMALS,
       },
-    ],
+    })),
   });
 }

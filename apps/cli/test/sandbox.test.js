@@ -84,6 +84,7 @@ test('quotes a buffered ETH reserve for one payment, USDT sweep, and native clea
 
 test('sizes lifecycle gas from a higher positive-transfer fee floor', () => {
   assert.equal(lifecycleGasReserve(80000n, 21000n), 226250n)
+  assert.equal(lifecycleGasReserve(80000n, 21000n, 4), 526250n)
 })
 
 test('sweeps the full USDT balance before returning economical ETH', async () => {

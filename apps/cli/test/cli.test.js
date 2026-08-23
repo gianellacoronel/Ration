@@ -397,6 +397,9 @@ test('run reports a confirmed 0.05 USDT payment and sweeps the remaining 0.45 be
   ])
   assert.equal(logs.includes('Budget        0.50 USDT'), true)
   assert.equal(logs.some((line) => line.includes('Gas reserve') && line.includes('infrastructure')), true)
+  assert.deepEqual(events.find((event) => event[0] === 'gas-confirmed'), [
+    'gas-confirmed', 338750n
+  ])
   assert.equal(logs.some((line) => /Network fee.*USDT|Total.*USDT/.test(line)), false)
   assert.equal(logs.includes('Spent      0.05 USDT'), true)
   assert.equal(logs.includes('Returned   0.45 USDT'), true)

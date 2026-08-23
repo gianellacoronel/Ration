@@ -16,8 +16,8 @@ function sleep (ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export function lifecycleGasReserve (tokenFee, nativeFee) {
-  const fee = tokenFee * 2n + nativeFee
+export function lifecycleGasReserve (tokenFee, nativeFee, paymentCount = 1) {
+  const fee = tokenFee * (BigInt(paymentCount) + 1n) + nativeFee
   return (fee * GAS_RESERVE_NUMERATOR + GAS_RESERVE_DENOMINATOR - 1n) /
     GAS_RESERVE_DENOMINATOR
 }

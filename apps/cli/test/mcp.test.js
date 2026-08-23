@@ -24,17 +24,48 @@ function demoCatalog () {
     seller: { address: DEMO_SELLER },
     network: { name: 'sepolia', chainId: 11155111 },
     token: { symbol: 'USDT', address: USDT_ADDRESS, decimals: 6 },
-    resources: [{
-      id: 'company-intel',
-      name: 'Company intelligence report',
-      method: 'GET',
-      path: '/api/demo/company-intel',
-      price: { amount: '0.02', amountBaseUnits: '20000', currency: 'USDT', decimals: 6 }
-    }]
+    resources: [
+      {
+        id: 'market-snapshot',
+        name: 'Market snapshot',
+        description: 'Market size, drivers, competitors, and risks.',
+        provides: ['market metrics', 'competitor positioning'],
+        method: 'GET',
+        path: '/api/demo/market-snapshot',
+        price: { amount: '0.01', amountBaseUnits: '10000', currency: 'USDT', decimals: 6 }
+      },
+      {
+        id: 'company-intel',
+        name: 'Company intelligence',
+        description: 'Company profile, financing, leadership, and signals.',
+        provides: ['company profile', 'funding and leadership'],
+        method: 'GET',
+        path: '/api/demo/company-intel',
+        price: { amount: '0.03', amountBaseUnits: '30000', currency: 'USDT', decimals: 6 }
+      },
+      {
+        id: 'deep-research',
+        name: 'Deep research',
+        description: 'Commercial evidence, economics, risks, and diligence questions.',
+        provides: ['commercial metrics', 'risk analysis'],
+        method: 'GET',
+        path: '/api/demo/deep-research',
+        price: { amount: '0.06', amountBaseUnits: '60000', currency: 'USDT', decimals: 6 }
+      },
+      {
+        id: 'premium-dataset',
+        name: 'Premium dataset',
+        description: 'Normalized vendor and deployment records.',
+        provides: ['vendor benchmarks', 'deployment records'],
+        method: 'GET',
+        path: '/api/demo/premium-dataset',
+        price: { amount: '0.5', amountBaseUnits: '500000', currency: 'USDT', decimals: 6 }
+      }
+    ]
   }
 }
 
-function demoPaymentRequired () {
+function demoPaymentRequired (amount = '0.06', amountBaseUnits = '60000') {
   return {
     paymentRequired: true,
     error: { code: 'payment_required', message: 'Payment required.' },
@@ -43,8 +74,8 @@ function demoPaymentRequired () {
       network: { name: 'sepolia', chainId: 11155111 },
       token: { symbol: 'USDT', address: USDT_ADDRESS, decimals: 6 },
       payToAddress: DEMO_SELLER,
-      amount: '0.02',
-      amountBaseUnits: '20000'
+      amount,
+      amountBaseUnits
     }
   }
 }
@@ -57,12 +88,14 @@ function jsonResponse (status, body) {
 }
 
 function fakeWallet (events, seed, address = '0xEphemeral') {
+  let tokenBalance = 100000n
+  let transferCount = 0
   const account = {
     getAddress: async () => address,
     getBalance: async () => 226734168715460n,
     getTokenBalance: async (token) => {
       events.push(['token', token])
-      return 500000n
+      return tokenBalance
     },
     quoteTransfer: async (options) => {
       events.push(['quote-transfer', options])
@@ -70,7 +103,9 @@ function fakeWallet (events, seed, address = '0xEphemeral') {
     },
     transfer: async (options) => {
       events.push(['transfer', options])
-      return { hash: '0xpayment', fee: 41000n }
+      tokenBalance -= options.amount
+      transferCount++
+      return { hash: transferCount === 1 ? '0xpayment' : `0xpayment${transferCount}`, fee: 41000n }
     },
     waitForTransaction: async (hash, options) => {
       events.push(['confirmed', hash, options])
@@ -126,7 +161,7 @@ test('serves the existing reads and confirmed Sepolia USDT transfer for the same
     const tools = await client.listTools()
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
       'getAddress', 'getBalance', 'getTokenBalance', 'ration_getCatalog',
-      'ration_purchaseResource', 'transfer'
+      'ration_getRemainingBalance', 'ration_purchaseResource', 'transfer'
     ])
 
     const address = await client.callTool({
@@ -156,7 +191,7 @@ test('serves the existing reads and confirmed Sepolia USDT transfer for the same
       balanceEth: '0.00022673416871546'
     })
     assert.equal(eth.content[0].text, 'Balance: 0.00022673416871546 Sepolia ETH (226734168715460 wei)')
-    assert.deepEqual(usdt.structuredContent, { balance: '0.5', balanceRaw: '500000' })
+    assert.deepEqual(usdt.structuredContent, { balance: '0.1', balanceRaw: '100000' })
     assert.equal(unsupported.isError, true)
     assert.match(unsupported.content[0].text, /Token "USDC" not registered/)
     assert.deepEqual(payment.structuredContent, { hash: '0xpayment', fee: '41000' })
@@ -225,13 +260,19 @@ test('does not broadcast a USDT transfer when Toolkit confirmation is declined',
   }
 })
 
-test('catalog discovery and purchase need no manual payment details or elicitation', async () => {
+test('catalog discovery and consecutive purchases need no manual payment details or elicitation', async () => {
   const seed = new Uint8Array(64).fill(7)
   const events = []
   const responses = [
     jsonResponse(200, demoCatalog()),
     jsonResponse(200, demoCatalog()),
     jsonResponse(402, demoPaymentRequired()),
+    jsonResponse(200, { resource: 'deep-research', research: { company: 'Acme' } }),
+    jsonResponse(200, demoCatalog()),
+    jsonResponse(402, demoPaymentRequired('0.01', '10000')),
+    jsonResponse(200, { resource: 'market-snapshot', snapshot: { market: 'Warehousing' } }),
+    jsonResponse(200, demoCatalog()),
+    jsonResponse(402, demoPaymentRequired('0.03', '30000')),
     jsonResponse(200, { resource: 'company-intel', intel: { company: 'Acme' } })
   ]
   const service = await createSandboxMcpService(seed, config, '0xephemeral', {
@@ -251,27 +292,64 @@ test('catalog discovery and purchase need no manual payment details or elicitati
   try {
     await client.connect(transport)
     const discovered = await client.callTool({ name: 'ration_getCatalog', arguments: {} })
+    const balanceBefore = await client.callTool({
+      name: 'ration_getRemainingBalance', arguments: {}
+    })
     const purchased = await client.callTool({
       name: 'ration_purchaseResource',
-      arguments: { resourceId: 'company-intel' }
+      arguments: { resourceId: 'deep-research' }
+    })
+    const secondPurchase = await client.callTool({
+      name: 'ration_purchaseResource',
+      arguments: { resourceId: 'market-snapshot' }
+    })
+    const parallelPurchases = await Promise.all([
+      client.callTool({
+        name: 'ration_purchaseResource', arguments: { resourceId: 'company-intel' }
+      }),
+      client.callTool({
+        name: 'ration_purchaseResource', arguments: { resourceId: 'company-intel' }
+      })
+    ])
+    const balanceAfter = await client.callTool({
+      name: 'ration_getRemainingBalance', arguments: {}
     })
 
-    assert.match(discovered.content[0].text, /company-intel.*0\.02 USDT/)
+    assert.match(discovered.content[0].text, /deep-research:[\s\S]*Price: 0\.06 USDT/)
+    assert.match(discovered.content[0].text, /premium-dataset:[\s\S]*Price: 0\.5 USDT/)
+    assert.deepEqual(balanceBefore.structuredContent, {
+      balance: '0.10', balanceBaseUnits: '100000', currency: 'USDT', decimals: 6
+    })
     assert.deepEqual(purchased.structuredContent, {
       purchased: true,
-      resource: 'company-intel',
-      paidBaseUnits: '20000',
+      resource: 'deep-research',
+      paidBaseUnits: '60000',
       txHash: '0xpayment',
-      payload: { resource: 'company-intel', intel: { company: 'Acme' } }
+      payload: { resource: 'deep-research', research: { company: 'Acme' } }
     })
-    assert.deepEqual(events.filter((event) => event[0] === 'transfer'), [[
-      'transfer',
-      { token: USDT_ADDRESS, recipient: DEMO_SELLER, amount: 20000n }
-    ]])
+    assert.deepEqual(balanceAfter.structuredContent, {
+      balance: '0.00', balanceBaseUnits: '0', currency: 'USDT', decimals: 6
+    })
+    assert.deepEqual(secondPurchase.structuredContent, {
+      purchased: true,
+      resource: 'market-snapshot',
+      paidBaseUnits: '10000',
+      txHash: '0xpayment2',
+      payload: { resource: 'market-snapshot', snapshot: { market: 'Warehousing' } }
+    })
+    assert.equal(parallelPurchases.every((result) =>
+      result.structuredContent.payload.resource === 'company-intel'), true)
+    assert.deepEqual(events.filter((event) => event[0] === 'transfer'), [
+      ['transfer', { token: USDT_ADDRESS, recipient: DEMO_SELLER, amount: 60000n }],
+      ['transfer', { token: USDT_ADDRESS, recipient: DEMO_SELLER, amount: 10000n }],
+      ['transfer', { token: USDT_ADDRESS, recipient: DEMO_SELLER, amount: 30000n }]
+    ])
     assert.equal(events.some((event) => event[0] === 'quote-transfer'), false)
-    assert.deepEqual(events.filter((event) => event[0] === 'confirmed'), [[
-      'confirmed', '0xpayment', { target: 'confirmed', timeout: 180000, interval: 1000 }
-    ]])
+    assert.deepEqual(events.filter((event) => event[0] === 'confirmed'), [
+      ['confirmed', '0xpayment', { target: 'confirmed', timeout: 180000, interval: 1000 }],
+      ['confirmed', '0xpayment2', { target: 'confirmed', timeout: 180000, interval: 1000 }],
+      ['confirmed', '0xpayment3', { target: 'confirmed', timeout: 180000, interval: 1000 }]
+    ])
   } finally {
     await client.close()
     await service.close()
@@ -290,7 +368,7 @@ test('configures Codex transiently without putting wallet credentials in argumen
     const joined = launch.args.join(' ')
     const enabledTools = launch.args.find((arg) => arg.startsWith('mcp_servers.ration.enabled_tools='))
     assert.match(joined, /mcp_servers\.ration\.command/)
-    assert.equal(enabledTools, 'mcp_servers.ration.enabled_tools=["getAddress","getBalance","getTokenBalance","transfer","ration_getCatalog","ration_purchaseResource"]')
+    assert.equal(enabledTools, 'mcp_servers.ration.enabled_tools=["getAddress","getBalance","getTokenBalance","transfer","ration_getRemainingBalance","ration_getCatalog","ration_purchaseResource"]')
     assert.equal(launch.args.includes('mcp_servers.ration.tool_timeout_sec=240'), true)
     assert.doesNotMatch(joined, /rationtreasury/)
     assert.equal(joined.includes(Buffer.from(seed).toString('hex')), false)

@@ -56,7 +56,7 @@ Set these two required variables:
 # A Sepolia JSON-RPC endpoint used by the web API to verify payments on-chain.
 RATION_DEMO_RPC_URL=https://sepolia.infura.io/v3/YOUR_KEY
 
-# A dedicated Sepolia EOA that receives the 0.02 test USDT payment.
+# A dedicated Sepolia EOA that receives marketplace payments.
 # Do not use rationtreasury or an ephemeral Ration sandbox address.
 RATION_DEMO_SELLER_ADDRESS=0xYOUR_DEDICATED_DEMO_SELLER_ADDRESS
 ```
@@ -96,8 +96,8 @@ From the repository root, keep this running in the first terminal:
 npm run dev
 ```
 
-Verify the configured catalog returns HTTP 200 and lists `company-intel` at
-`0.02 USDT`:
+Verify the configured catalog returns HTTP 200 and lists the four deterministic
+resources at `0.01`, `0.03`, `0.06`, and `0.50 USDT`:
 
 ```bash
 curl http://localhost:3000/api/demo/catalog
@@ -131,25 +131,19 @@ Unlock the treasury when WDK prompts, approve sandbox funding, and then give
 Codex only this prompt:
 
 ```text
-Check the available paid resources and get the company intelligence report.
+Produce the best company research brief you can with the resources available to you.
 ```
 
-Codex should call `ration_getCatalog`, call `ration_purchaseResource` with only
-the `company-intel` resource ID, pay `0.02 USDT` from the ephemeral sandbox,
-and return the unlocked report. Exit Codex to trigger cleanup. The session ends
-with:
-
-```text
-Spent      0.02 USDT
-Returned   0.08 USDT
-Sandbox    disposed
-```
+Codex can inspect the catalog and its remaining balance, then decide which
+resource IDs to purchase. The `premium-dataset` costs `0.50 USDT`, so a real
+`0.10 USDT` sandbox cannot buy every listing. Exit Codex to trigger cleanup;
+the final spent and returned totals reflect the purchases it chose.
 
 A one-shot Codex invocation is also supported:
 
 ```bash
 ration run --budget 0.10 -- codex exec \
-  "Check the available paid resources and get the company intelligence report."
+  "Produce the best company research brief you can with the resources available to you."
 ```
 
 ## Running A Session
@@ -163,7 +157,7 @@ The normal session lifecycle is:
 1. Validate the official standard Sepolia EVM configuration.
 2. Create one in-memory standard WDK EOA.
 3. Unlock the persistent treasury and read its USDT and ETH balances.
-4. Quote one agent USDT payment, the sandbox's USDT sweep, and native ETH return through the official SDK.
+4. Quote gas for up to four catalog purchases, the sandbox's USDT sweep, and native ETH return through the official SDK.
 5. Add a small buffer and dry-run the treasury's ETH and USDT transfers through the official CLI.
 6. Fail before confirmation or broadcast unless the treasury has the exact USDT budget and enough ETH for all session infrastructure.
 7. Provision the ephemeral EOA with its small ETH reserve, then transfer the exact requested USDT budget.
@@ -188,12 +182,13 @@ The user budget is always USDT. Sepolia ETH is provisioned only for lifecycle ga
 
 `ration run` attaches an official `@tetherto/wdk-mcp-toolkit` server to OpenCode and Codex without writing either agent's configuration files. The agent starts a local stdio bridge connected to a private, session-only Unix socket; the seed remains in the parent Ration process and is never placed in command arguments, environment variables, configuration files, or logs.
 
-The server registers one `sepolia` wallet and six scoped tools:
+The server registers one `sepolia` wallet and seven scoped tools:
 
 - `getAddress`
 - `getBalance` for native Sepolia ETH, returned as both formatted ETH and canonical wei
 - `getTokenBalance` for Sepolia USDT
 - `transfer` for Sepolia USDT; the Toolkit quotes the fee and requires explicit MCP elicitation confirmation before broadcast, then Ration waits for chain confirmation before returning the result
+- `ration_getRemainingBalance` to read the disposable sandbox's current USDT balance without spending
 - `ration_getCatalog` to discover the paid resources on the configured Ration demo API
 - `ration_purchaseResource` to request a catalog resource, validate its `402` Sepolia test USDT requirements, check the sandbox balance, pay from the same ephemeral EOA, wait for confirmation, and return the unlocked payload
 

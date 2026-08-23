@@ -1,39 +1,44 @@
 # @ration/web
 
-Marketing site for Ration, plus a scoped paid-resource demo: one real HTTP
-resource that is unlocked by a USDT payment made from a Ration sandbox.
+Marketing site for Ration, plus a small paid-resource marketplace unlocked by
+USDT payments made from a Ration sandbox.
 
 ## Paid resource demo
 
-Two endpoints live under `/api/demo`:
+Five endpoints live under `/api/demo`:
 
-- `GET /api/demo/catalog` — free. Returns the available resource, its price,
-  the seller address, the network, and the token.
-- `GET /api/demo/company-intel` — protected. Costs `0.02` test USDT and
-  returns deterministic company-intelligence JSON once a valid payment is
-  presented.
+- `GET /api/demo/catalog` - free. Returns every resource's id, description,
+  information coverage, price, path, plus the seller, network, and token.
+- `GET /api/demo/market-snapshot` - protected at `0.01` test USDT.
+- `GET /api/demo/company-intel` - protected at `0.03` test USDT.
+- `GET /api/demo/deep-research` - protected at `0.06` test USDT.
+- `GET /api/demo/premium-dataset` - protected at `0.50` test USDT.
+
+Every payload is deterministic. The `premium-dataset` intentionally costs more
+than the `0.10 USDT` acceptance sandbox.
 
 ### Flow
 
-1. `GET /api/demo/company-intel` returns `402 Payment Required` with
-   machine-readable payment requirements (seller, token, amount, network) and
-   retry instructions.
-2. The agent calls `ration_purchaseResource({ resourceId: "company-intel" })`.
-   Ration validates the server's Sepolia test USDT requirements, checks the
-   ephemeral sandbox balance, pays `0.02` USDT from that same EOA, and waits for
-   confirmation. No recipient, token, amount, network, or transaction details
-   are supplied by the agent.
-3. Ration retries `GET /api/demo/company-intel` with the confirmed hash in the
+1. The agent reads `ration_getCatalog` and `ration_getRemainingBalance`.
+2. The agent calls `ration_purchaseResource` with any listed resource id it
+   chooses. Ration requests that fixed resource route and receives `402 Payment
+   Required` with machine-readable seller, token, amount, network, and retry
+   instructions.
+3. Ration validates those requirements against the catalog, checks the
+   ephemeral sandbox's real USDT balance, pays from that same EOA, and waits for
+   confirmation. No recipient, token, amount, network, URL, or transaction
+   details are supplied by the agent.
+4. Ration retries the selected fixed route with the confirmed hash in the
    `x-payment-tx-hash` header and returns the unlocked payload to the agent.
-4. The server verifies on-chain, independently of anything the client claims,
+5. The server verifies on-chain, independently of anything the client claims,
    that the transaction:
    - succeeded (`status == 0x1`);
    - emitted an ERC-20 `Transfer` log from the official Sepolia test USDT
      contract at `0xd077A400968890Eacc75cdc901F0356c943e4fDb`;
    - sent to the configured seller address;
-   - transferred at least `0.02` USDT (6 decimals);
+   - transferred at least the selected resource's listed price (6 decimals);
    - has not been redeemed before.
-5. On success the resource is returned exactly once per transaction hash.
+6. On success the resource is returned exactly once per transaction hash.
 
 Redeemed hashes are kept in memory and mirrored to a JSON ledger file so a
 server restart cannot resurrect an already-used payment. Failed verification
@@ -61,14 +66,14 @@ treasury (`rationtreasury`).
 npm run dev
 
 curl http://localhost:3000/api/demo/catalog
-# → resource, price 0.02 USDT, seller, network sepolia, token USDT
+# -> four resources, prices, information coverage, seller, network, and token
 
 curl -i http://localhost:3000/api/demo/company-intel
 # → 402 Payment Required with payment requirements
 
 # Then run `ration run --budget 0.10 -- codex` and ask:
-# Check the available paid resources and get the company intelligence report.
-# Codex discovers and purchases the resource through the Ration MCP tools.
+# Produce the best company research brief you can with the resources available to you.
+# Codex decides how to allocate the disposable balance through Ration MCP.
 ```
 
 ## Getting Started (site)

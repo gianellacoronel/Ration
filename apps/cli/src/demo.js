@@ -4,6 +4,13 @@ import { parseUsdt } from './domain.js'
 export const DEFAULT_DEMO_ORIGIN = 'http://localhost:3000'
 export const DEMO_CHAIN_ID = 11155111
 export const PAYMENT_TX_HEADER = 'x-payment-tx-hash'
+export const DEMO_RESOURCE_PATHS = Object.freeze({
+  'market-snapshot': '/api/demo/market-snapshot',
+  'company-intel': '/api/demo/company-intel',
+  'deep-research': '/api/demo/deep-research',
+  'premium-dataset': '/api/demo/premium-dataset'
+})
+export const MAX_DEMO_RESOURCE_PURCHASES = Object.keys(DEMO_RESOURCE_PATHS).length
 
 const REQUEST_TIMEOUT_MS = 15000
 const CONFIRM_TIMEOUT_MS = 120000
@@ -73,12 +80,19 @@ export function parseCatalogPayload (payload) {
   if (!Array.isArray(body.resources) || body.resources.length === 0) {
     throw new DemoPaymentError('The demo catalog lists no resources.')
   }
+  const resourceIds = new Set()
   for (const resource of body.resources) {
     if (!resource || typeof resource.id !== 'string' ||
+      resource.id.length === 0 || resourceIds.has(resource.id) ||
+      DEMO_RESOURCE_PATHS[resource.id] !== resource.path ||
+      typeof resource.description !== 'string' || resource.description.length === 0 ||
+      !Array.isArray(resource.provides) || resource.provides.length === 0 ||
+      resource.provides.some((item) => typeof item !== 'string' || item.length === 0) ||
       typeof resource.path !== 'string' || !resource.path.startsWith('/') ||
       resource.method !== 'GET') {
       throw new DemoPaymentError('The demo catalog contains a malformed resource entry.')
     }
+    resourceIds.add(resource.id)
     const price = requireObject(resource.price, 'catalog price')
     if (!/^\d+$/.test(price.amountBaseUnits ?? '') || BigInt(price.amountBaseUnits) <= 0n) {
       throw new DemoPaymentError('The demo catalog contains a malformed resource price.')
@@ -89,6 +103,16 @@ export function parseCatalogPayload (payload) {
     }
   }
   return body
+}
+
+function unlockedPayload (payload, resourceId, txHash) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
+    payload.resource !== resourceId) {
+    throw new DemoPaymentError(
+      `The demo server returned a payload for a different resource than "${resourceId}".`,
+      { txHash })
+  }
+  return payload
 }
 
 /**
@@ -209,7 +233,7 @@ export async function purchaseResourceViaDemoApi ({
 
   const first = await requestJson(fetchImpl, resourceUrl)
   if (first.status === 200) {
-    return { payload: first.body, paidBaseUnits: 0n, txHash: undefined }
+    return { payload: unlockedPayload(first.body, resourceId), paidBaseUnits: 0n, txHash: undefined }
   }
   if (first.status !== 402) {
     throw new DemoPaymentError(`The demo API returned unexpected HTTP ${first.status} for ${resource.path}.`)
@@ -251,7 +275,11 @@ export async function purchaseResourceViaDemoApi ({
       headers: { [PAYMENT_TX_HEADER]: payment.hash }
     })
     if (retry.status === 200) {
-      return { payload: retry.body, paidBaseUnits: requirements.amountBaseUnits, txHash: payment.hash }
+      return {
+        payload: unlockedPayload(retry.body, resourceId, payment.hash),
+        paidBaseUnits: requirements.amountBaseUnits,
+        txHash: payment.hash
+      }
     }
     const code = typeof retry.body?.error?.code === 'string' ? retry.body.error.code : 'unknown'
     const retryable = (retry.status === 402 && code === 'tx_not_found') ||

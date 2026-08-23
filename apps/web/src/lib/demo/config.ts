@@ -3,11 +3,7 @@ export const SEPOLIA_USDT_ADDRESS =
   "0xd077A400968890Eacc75cdc901F0356c943e4fDb";
 export const USDT_DECIMALS = 6;
 
-export const RESOURCE_ID = "company-intel";
-export const RESOURCE_PATH = "/api/demo/company-intel";
 export const CATALOG_PATH = "/api/demo/catalog";
-
-const PRICE_BASE_UNITS = 20000n; // 0.02 USDT with 6 decimals
 
 export interface DemoPaymentConfig {
   rpcUrl: string;
@@ -18,7 +14,7 @@ export interface DemoPaymentConfig {
 }
 
 export type DemoConfigResult =
-  | { ok: true; config: DemoPaymentConfig; priceBaseUnits: bigint }
+  | { ok: true; config: DemoPaymentConfig }
   | { ok: false; error: string };
 
 function isAddress(value: string): boolean {
@@ -79,7 +75,6 @@ export function loadDemoConfig(
 
   return {
     ok: true,
-    priceBaseUnits: PRICE_BASE_UNITS,
     config: {
       rpcUrl,
       sellerAddress: sellerAddress.toLowerCase(),

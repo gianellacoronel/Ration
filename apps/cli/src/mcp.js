@@ -124,14 +124,61 @@ function registerDemoTools (server, origin, options = {}) {
   // One successful purchase per resource per session. A repeat call returns
   // the unlocked payload instead of spending from the sandbox a second time.
   const unlockedPayloads = new Map()
+  const purchaseOperations = new Map()
+
+  server.registerTool(
+    'ration_getRemainingBalance',
+    {
+      title: 'Get Remaining Ration Balance',
+      description: 'Read the USDT balance currently remaining in this session\'s disposable sandbox wallet. This tool cannot transfer or spend funds. Args: none.',
+      inputSchema: z.object({}).optional(),
+      outputSchema: z.object({
+        balance: z.string().describe('Remaining USDT formatted in token units'),
+        balanceBaseUnits: z.string().describe('Remaining USDT in canonical 6-decimal base units'),
+        currency: z.literal('USDT'),
+        decimals: z.literal(6)
+      }),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async () => {
+      try {
+        const account = await server.wdk.getAccount(CHAIN, 0)
+        const balanceBaseUnits = await account.getTokenBalance(USDT_ADDRESS)
+        const formatted = formatUsdtBaseUnits(balanceBaseUnits)
+        const balance = formatted.replace(/ USDT$/, '')
+        return {
+          content: [{
+            type: 'text',
+            text: `Remaining sandbox balance: ${formatted} (${balanceBaseUnits} base units).`
+          }],
+          structuredContent: {
+            balance,
+            balanceBaseUnits: balanceBaseUnits.toString(),
+            currency: 'USDT',
+            decimals: 6
+          }
+        }
+      } catch {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: 'Could not read the remaining sandbox USDT balance.' }]
+        }
+      }
+    }
+  )
 
   server.registerTool(
     'ration_getCatalog',
     {
       title: 'Get Ration Demo Catalog',
-      description: `List the paid resources offered by the Ration demo API and what each costs.
+      description: `List the paid resources offered by the Ration demo API, what information each provides, and what each costs.
 
-Call this before purchasing. It returns the seller address, the Sepolia network details, the official test USDT token address, and each resource's id and price in USDT.
+It returns the seller address, the Sepolia network details, the official test USDT token address, and each resource's id, description, information coverage, and price in USDT.
 Args: none.`,
       inputSchema: z.object({}).optional(),
       annotations: {
@@ -154,9 +201,12 @@ Args: none.`,
         return {
           content: [{
             type: 'text',
-            text: catalog.resources.map((resource) =>
-              `${resource.id}: ${resource.name} - ${resource.price.amount} USDT (${resource.method} ${resource.path})`
-            ).join('\n')
+            text: catalog.resources.map((resource) => [
+              `${resource.id}: ${resource.name}`,
+              `Description: ${resource.description}`,
+              `Provides: ${resource.provides.join('; ')}`,
+              `Price: ${resource.price.amount} USDT (${resource.method} ${resource.path})`
+            ].join('\n')).join('\n\n')
           }],
           structuredContent: catalog
         }
@@ -174,7 +224,7 @@ Args: none.`,
 
 The full payment flow is handled automatically: the resource is requested, its price in test USDT is read from the server's payment requirements, the amount is sent from this sandbox's Sepolia USDT balance to the seller, the transaction is waited until confirmed, and the protected payload is returned with the transaction hash. No other wallet is used and no payment details are needed from you.
 Args:
-  - resourceId (REQUIRED): the resource id from ration_getCatalog (e.g. "company-intel")`,
+  - resourceId (REQUIRED): a resource id returned by ration_getCatalog`,
       inputSchema: z.object({
         resourceId: z.string().min(1).describe('The resource id from ration_getCatalog')
       }),
@@ -197,16 +247,31 @@ Args:
         }
       }
       try {
-        const account = await server.wdk.getAccount(CHAIN, 0)
-        const result = await purchaseResourceViaDemoApi({
-          origin,
-          resourceId,
-          account,
-          fetchImpl,
-          wait,
-          transferWaitsForConfirmation: true
-        })
-        unlockedPayloads.set(resourceId, result.payload)
+        let operation = purchaseOperations.get(resourceId)
+        if (!operation) {
+          operation = (async () => {
+            const account = await server.wdk.getAccount(CHAIN, 0)
+            const result = await purchaseResourceViaDemoApi({
+              origin,
+              resourceId,
+              account,
+              fetchImpl,
+              wait,
+              transferWaitsForConfirmation: true
+            })
+            unlockedPayloads.set(resourceId, result.payload)
+            return result
+          })()
+          purchaseOperations.set(resourceId, operation)
+        }
+        let result
+        try {
+          result = await operation
+        } finally {
+          if (purchaseOperations.get(resourceId) === operation) {
+            purchaseOperations.delete(resourceId)
+          }
+        }
         const paidText = result.txHash
           ? ` Paid ${formatUsdtBaseUnits(result.paidBaseUnits)} with transaction ${result.txHash}.`
           : ''
@@ -296,7 +361,7 @@ function configureOpenCode (args, env, bridgeCommand) {
 
 const ENABLED_TOOLS = [
   'getAddress', 'getBalance', 'getTokenBalance', 'transfer',
-  'ration_getCatalog', 'ration_purchaseResource'
+  'ration_getRemainingBalance', 'ration_getCatalog', 'ration_purchaseResource'
 ]
 
 function configureCodex (args, env, bridgeCommand) {

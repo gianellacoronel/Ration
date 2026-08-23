@@ -8,6 +8,7 @@ import {
   nativeBalanceBaseUnits,
   parseUsdt
 } from '../domain.js'
+import { MAX_DEMO_RESOURCE_PURCHASES } from '../demo.js'
 import { CommandLaunchError, WalletTransferError, WdkCliUnavailableError } from '../errors.js'
 import { childExitCode, runRequestedCommand } from '../processes.js'
 import { confirmTransfer } from '../prompts.js'
@@ -126,7 +127,11 @@ export async function runCommand (args, options, output) {
     const estimatedSweepFee = budgetFundingFee === null
       ? lifecycleGas.tokenFee
       : [lifecycleGas.tokenFee, budgetFundingFee].reduce((largest, fee) => fee > largest ? fee : largest)
-    const gasReserve = lifecycleGasReserve(estimatedSweepFee, lifecycleGas.nativeFee)
+    const gasReserve = lifecycleGasReserve(
+      estimatedSweepFee,
+      lifecycleGas.nativeFee,
+      MAX_DEMO_RESOURCE_PURCHASES
+    )
     const gasInput = {
       sourceWallet: TREASURY_NAME,
       network: NETWORK,

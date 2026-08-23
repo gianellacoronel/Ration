@@ -17,6 +17,12 @@ const variablePattern = new RegExp(
   "g",
 );
 
+const commandHighlights: Record<CliCommandId, string> = {
+  list: "Simple commands.",
+  balance: "Explicit money.",
+  run: "Isolated execution.",
+};
+
 function HighlightedCommand({ command }: { command: string }) {
   return command.split(variablePattern).map((part, index) =>
     variables.includes(part as (typeof variables)[number]) ? (
@@ -81,25 +87,34 @@ export function CliSection() {
       aria-labelledby="cli-title"
     >
       <div className="mx-auto max-w-content">
-        <div className="grid gap-12 desktop:grid-cols-[minmax(15rem,0.55fr)_minmax(0,1.45fr)] desktop:items-center desktop:gap-16">
+        <div className="grid gap-12 desktop:grid-cols-[minmax(15rem,0.7fr)_minmax(0,1.3fr)] desktop:items-center desktop:gap-16">
           <div>
             <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">
               Interface / Ration CLI
             </p>
             <h2
               id="cli-title"
-              className="display-type max-w-[9ch] text-[clamp(3rem,7vw,6rem)] leading-[0.86] text-foreground"
+              className="display-type text-[clamp(3rem,5.5vw,5.25rem)] leading-[0.86] text-foreground"
             >
-              Built for the terminal.
+              <span className="block whitespace-nowrap">Built</span>
+              <span className="block whitespace-nowrap">For the</span>
+              <span className="block whitespace-nowrap">Terminal.</span>
             </h2>
             <p className="mt-9 border-l-2 border-ration-orange pl-5 font-mono text-sm leading-7 text-muted">
-              <span className="block text-foreground">Simple commands.</span>
-              <span className="block">Explicit money.</span>
-              <span className="block">Isolated execution.</span>
+              {Object.entries(commandHighlights).map(([id, label]) => (
+                <span
+                  key={id}
+                  className={`block transition-colors ${
+                    activeId === id ? "font-semibold text-ration-orange" : "text-muted"
+                  }`}
+                >
+                  {label}
+                </span>
+              ))}
             </p>
           </div>
 
-          <div className="min-w-0 overflow-hidden rounded-sm border border-ration-cream/20 bg-terminal">
+          <div className="min-w-0 overflow-hidden rounded-sm border border-ration-cream/20 bg-terminal desktop:w-full desktop:max-w-[46rem] desktop:justify-self-end">
             <div className="flex h-12 items-center justify-between border-b border-ration-cream/15 px-4 mobile:px-5">
               <span className="flex items-center gap-2 font-mono text-[0.625rem] tracking-[0.14em] text-ration-orange uppercase">
                 <Terminal size={16} /> ration / cli
@@ -171,8 +186,8 @@ export function CliSection() {
                 </button>
               </div>
 
-              <div className="overflow-x-auto border-b border-ration-cream/15 p-4 mobile:p-6">
-                <pre className="min-w-max text-[0.75rem] leading-6 whitespace-pre text-ration-cream mobile:text-[0.8125rem]">
+              <div className="min-h-[5rem] border-b border-ration-cream/15 p-4 mobile:p-6">
+                <pre className="text-[0.75rem] leading-6 whitespace-pre-wrap text-ration-cream mobile:text-[0.8125rem]">
                   <code>
                     <span className="select-none text-ration-orange" aria-hidden="true">
                       $ {" "}
@@ -182,10 +197,10 @@ export function CliSection() {
                 </pre>
               </div>
 
-              <div className="min-h-[16.5rem] overflow-x-auto p-4 mobile:min-h-[18rem] mobile:p-6">
+              <div className="min-h-[16.5rem] p-4 mobile:min-h-[18.75rem] mobile:p-6">
                 <pre
                   key={activeCommand.id}
-                   className="min-w-max animate-fade-in font-mono text-[0.6875rem] leading-6 whitespace-pre text-ration-cream/58 mobile:text-xs mobile:leading-7"
+                  className="animate-fade-in font-mono text-[0.6875rem] leading-6 whitespace-pre-wrap text-ration-cream/58 mobile:text-xs mobile:leading-7"
                 >
                   {activeCommand.output}
                 </pre>

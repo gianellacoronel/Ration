@@ -10,6 +10,7 @@ import {
   WalletLockError,
   WalletTransferError,
   WalletUnlockError,
+  WdkConfigError,
   WdkCliUnavailableError
 } from './errors.js'
 import { activeChildren } from './processes.js'
@@ -159,6 +160,16 @@ export function runWdkWalletCreate (name, options = {}) {
   const { emptyPassphrase, ...rest } = options
   return spawnInteractive(['wallet', 'create', '--name', name], WalletCreationError,
     emptyPassphrase ? 2 : 0, rest)
+}
+
+export function runWdkGetNetworkConfig (network = NETWORK, options = {}) {
+  return spawnJson(
+    ['config', 'get', '--network', network],
+    WdkConfigError,
+    (result) => result?.network === network && result?.config !== null &&
+      typeof result?.config === 'object' && !Array.isArray(result.config),
+    options
+  ).then((result) => result.config)
 }
 
 export function runWdkWalletList (options = {}) {

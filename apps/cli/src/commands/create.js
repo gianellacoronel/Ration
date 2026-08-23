@@ -14,6 +14,7 @@ import {
   WdkCliUnavailableError
 } from '../errors.js'
 import { confirmTransfer } from '../prompts.js'
+import { paymasterTokenFee } from '../paymaster.js'
 import {
   runWdkGetAddress,
   runWdkGetUsdtBalance,
@@ -27,6 +28,7 @@ import {
   operationExitCode,
   parseSingleValueFlag,
   printWalletError,
+  requirePaymasterTokenMode,
   transferFailureMessage
 } from './shared.js'
 
@@ -48,6 +50,8 @@ export async function createCommand (args, options, output) {
     output.error(SETUP_REQUIRED)
     return 1
   }
+  const paymaster = await requirePaymasterTokenMode(options, output)
+  if (!paymaster) return 1
 
   const unlock = options.runWdkWalletUnlock ?? runWdkWalletUnlock
   const create = options.runWdkWalletCreate ?? runWdkWalletCreate
@@ -87,17 +91,27 @@ export async function createCommand (args, options, output) {
         dryRun: true
       }
       const preview = await transfer(transferInput)
+      const fee = paymasterTokenFee(preview)
+      if (fee === null) {
+        output.error('WDK did not return a valid USD₮ gas quote. Nothing was broadcast.')
+        exitCode = 1
+      } else if (fee >= paymaster.transferMaxFee) {
+        const limit = formatUsdtBaseUnits(paymaster.transferMaxFee)
+        output.error(`The estimated gas fee ${formatUsdtBaseUnits(fee)} exceeds the WDK safety limit of ${limit}.`)
+        output.error('Nothing was broadcast.')
+        exitCode = 1
+      } else {
+        output.log('')
+        output.log('Sandbox funding preview')
+        output.log(`  Sandbox       ${name}`)
+        output.log(`  Address       ${address}`)
+        output.log(`  Budget        ${formatUsdtBaseUnits(budgetUnits)}`)
+        output.log(`  Estimated fee ${formatUsdtBaseUnits(fee)}`)
+        output.log('')
 
-      output.log('')
-      output.log('Sandbox funding preview')
-      output.log(`  Sandbox       ${name}`)
-      output.log(`  Address       ${address}`)
-      output.log(`  Budget        ${formatUsdtBaseUnits(budgetUnits)}`)
-      output.log(`  Estimated fee ${formatUsdtBaseUnits(preview.estimatedFee)}`)
-      output.log('')
-
-      if (await confirm() !== true) cancelled = true
-      else result = await transfer({ ...transferInput, dryRun: false })
+        if (await confirm() !== true) cancelled = true
+        else result = await transfer({ ...transferInput, dryRun: false })
+      }
     }
   } catch (error) {
     exitCode = operationExitCode(error)

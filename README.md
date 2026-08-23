@@ -13,8 +13,27 @@ WDK remains the wallet source of truth. Ration does not implement wallet storage
 
 - Node.js 22.18.0 or newer
 - npm
+- WDK's public Candide Sepolia Paymaster Token configuration
 
 The repository includes an `.nvmrc` matching the Node.js version required by the installed WDK CLI.
+
+### USD₮ Gas Payments
+
+Ration does not sponsor user transactions. It uses WDK's Paymaster Token mode, where Candide supplies native gas and charges the wallet in test USD₮. Configure these fields for WDK's `smart-account-sepolia` network before running `ration setup`:
+
+```text
+chainId                11155111
+bundlerUrl             https://api.candide.dev/public/v3/11155111
+paymasterUrl           https://api.candide.dev/public/v3/11155111
+paymasterAddress       0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba
+paymasterToken.address 0xd077a400968890eacc75cdc901f0356c943e4fdb
+transferMaxFee         100000
+isSponsored            false (or omitted)
+```
+
+Candide's public endpoint serves both Bundler and Paymaster requests without an API key. It is rate-limited by source IP; private authenticated endpoints are intended for production or higher limits and are not required or bundled by Ration. The pinned WDK CLI preset still uses the deprecated `/public/v3/sepolia` path, so its user-level network config must be updated to the numeric endpoint documented above.
+
+Ration reads the network configuration through WDK's structured CLI output and fails before unlocking a wallet when it is not the documented Paymaster Token configuration. A quoted fee at or above WDK's configured `0.1 USD₮` safety limit is rejected before confirmation or broadcast.
 
 ## Getting Started
 
@@ -49,7 +68,7 @@ Ration performs the following workflow:
 3. Creates a collision-checked sandbox with a short name such as `rationa31f`.
 4. Briefly unlocks the sandbox through WDK and resolves its receiving address.
 5. Runs WDK's structured transfer dry run.
-6. Displays the budget and estimated fee, then asks for explicit confirmation.
+6. Displays the USD₮ gas quote, verifies it is below WDK's safety limit, then asks for explicit confirmation.
 7. Broadcasts only after an explicit `y` or `yes`.
 8. Locks both the sandbox and treasury before reporting success.
 
@@ -115,6 +134,8 @@ The advanced `unlock` command accepts sandboxes only. Ration never offers a comm
 
 - Wallet creation and unlocking use the official interactive WDK CLI with inherited terminal I/O.
 - Ration only parses documented structured JSON from wallet listing, address, balance, lock, dry-run, and transfer commands.
+- Ration validates Paymaster Token mode, the public Candide Sepolia endpoint, paymaster, test token, and fee cap before wallet operations that can spend funds.
+- Ration never requires or bundles a private Candide API key or sponsorship policy.
 - Wallet seeds, passphrases, private keys, and EOA addresses are never captured or stored by Ration.
 - The treasury and sandbox are explicitly locked after creation, cancellation, or failure.
 - Command sessions start by locking all WDK wallets and finish with the same all-wallet lock operation.
@@ -122,7 +143,7 @@ The advanced `unlock` command accepts sandboxes only. Ration never offers a comm
 - A lock failure is reported as an error and prevents Ration from claiming successful completion.
 - Normal output uses only Ration concepts and receiving addresses.
 
-For the hackathon, Ration uses WDK's built-in Sepolia account configuration and registered test USD₮ token. Network adapter, account implementation, and fee-payment details stay behind the product UX.
+For the hackathon, Ration uses WDK's Sepolia smart-account implementation and Candide Paymaster Token mode. Each wallet's test USD₮ balance pays its own transaction fees; Ration does not subsidize user gas.
 
 ## Scope
 
@@ -158,3 +179,6 @@ WDK and WDK CLI are currently beta software. Use test networks and test amounts,
 - [WDK documentation](https://docs.wallet.tether.io/)
 - [WDK CLI repository](https://github.com/tetherto/wdk-cli)
 - [WDK core repository](https://github.com/tetherto/wdk)
+- [WDK ERC-4337 configuration](https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm-erc-4337/configuration/)
+- [Candide public endpoints](https://docs.candide.dev/wallet/api/public-endpoints/)
+- [Candide supported gas tokens](https://docs.candide.dev/wallet/paymaster/tokens-supported/)

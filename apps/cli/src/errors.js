@@ -1,5 +1,14 @@
 export class WdkCliUnavailableError extends Error {}
 
+export class WdkConfigError extends Error {
+  constructor (exitCode, signal, message, wdkCode) {
+    super(message ?? (signal ? `WDK was stopped by ${signal}.` : `WDK exited with code ${exitCode}.`))
+    this.exitCode = exitCode
+    this.signal = signal
+    this.wdkCode = wdkCode
+  }
+}
+
 export class WalletCreationError extends Error {
   constructor (code, signal) {
     super(signal ? `WDK was stopped by ${signal}.` : `WDK exited with code ${code}.`)

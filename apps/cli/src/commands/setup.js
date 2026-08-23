@@ -2,11 +2,18 @@ import { NETWORK, TREASURY_NAME } from '../config.js'
 import { isTreasuryConfigured } from '../domain.js'
 import { WalletCreationError, WalletUnlockError } from '../errors.js'
 import { runWdkGetAddress, runWdkWalletCreate, runWdkWalletUnlock } from '../wdk.js'
-import { loadWallets, lockWallets, operationExitCode, printWalletError } from './shared.js'
+import {
+  loadWallets,
+  lockWallets,
+  operationExitCode,
+  printWalletError,
+  requirePaymasterTokenMode
+} from './shared.js'
 
 export async function setupCommand (options, output, { insecure = false } = {}) {
   let wallets = await loadWallets(options, output)
   if (!wallets) return 1
+  if (!(await requirePaymasterTokenMode(options, output))) return 1
 
   const create = options.runWdkWalletCreate ?? runWdkWalletCreate
   const unlock = options.runWdkWalletUnlock ?? runWdkWalletUnlock
@@ -58,6 +65,7 @@ export async function setupCommand (options, output, { insecure = false } = {}) 
   output.log('Treasury ready')
   output.log(`  Address   ${address}`)
   output.log('  Status    locked')
+  output.log('  Gas       paid in USD₮')
   output.log('')
   output.log('Fund this address with test USD₮ before creating a sandbox.')
   return 0

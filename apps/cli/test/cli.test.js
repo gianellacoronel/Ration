@@ -12,10 +12,11 @@ import {
   createWdkOutputFilter,
   createWalletName,
   isRationWalletName,
-  main,
+  main as cliMain,
   resolveWdkNetwork,
   runRequestedCommand,
   runWdkGetAddress,
+  runWdkGetNetworkConfig,
   runWdkGetUsdtBalance,
   runWdkTransfer,
   runWdkWalletCreate,
@@ -24,6 +25,24 @@ import {
   runWdkWalletLockAll,
   runWdkWalletUnlock
 } from '../src/cli.js'
+
+const PAYMASTER_TOKEN_CONFIG = {
+  chainId: 11155111,
+  bundlerUrl: 'https://api.candide.dev/public/v3/11155111',
+  paymasterUrl: 'https://api.candide.dev/public/v3/11155111',
+  paymasterAddress: '0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba',
+  paymasterToken: {
+    address: '0xd077a400968890eacc75cdc901f0356c943e4fdb'
+  },
+  transferMaxFee: 100000
+}
+
+function main (args, options = {}) {
+  return cliMain(args, {
+    runWdkGetNetworkConfig: async () => PAYMASTER_TOKEN_CONFIG,
+    ...options
+  })
+}
 
 function captureOutput () {
   const logs = []
@@ -56,8 +75,8 @@ function preview (to = '0xsandbox') {
     to,
     amountFormatted: '5 USDT',
     tokenSymbol: 'USDT',
-    estimatedFee: '100000',
-    estimatedFeeFormatted: '0.1 USDT'
+    estimatedFee: '50000',
+    estimatedFeeFormatted: '0.05 USDT'
   }
 }
 
@@ -325,6 +344,22 @@ test('uses structured address and balance commands for the default environment',
   ])
 })
 
+test('reads paymaster configuration through structured official CLI output', async () => {
+  const invocations = []
+  const config = await runWdkGetNetworkConfig(undefined, {
+    wdkCliPath: '/wdk.mjs',
+    spawnProcess: (...args) => {
+      invocations.push(args[1])
+      return jsonChild({ network: 'smart-account-sepolia', config: PAYMASTER_TOKEN_CONFIG })
+    }
+  })
+
+  assert.deepEqual(config, PAYMASTER_TOKEN_CONFIG)
+  assert.deepEqual(invocations, [[
+    '/wdk.mjs', 'config', 'get', '--network', 'smart-account-sepolia', '--json'
+  ]])
+})
+
 test('runs a structured dry run before a structured transfer', async () => {
   const invocations = []
   const base = {
@@ -429,6 +464,27 @@ test('commands that need a treasury explain the setup prerequisite', async () =>
     assert.equal(exitCode, 1)
     assert.deepEqual(errors, ["Ration is not set up yet. Run 'ration setup' first."])
   }
+})
+
+test('funding fails closed before unlocking when Paymaster Token mode is malformed', async () => {
+  const { errors, output } = captureOutput()
+  let unlocked = false
+  const exitCode = await cliMain(['create', '--budget', '5'], {
+    output,
+    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: false }],
+    runWdkGetNetworkConfig: async () => ({
+      ...PAYMASTER_TOKEN_CONFIG,
+      bundlerUrl: 'https://api.candide.dev/api/v3/11155111/private-key',
+      paymasterUrl: 'https://api.candide.dev/api/v3/11155111/private-key',
+      isSponsored: true
+    }),
+    runWdkWalletUnlock: async () => { unlocked = true }
+  })
+
+  assert.equal(exitCode, 1)
+  assert.equal(unlocked, false)
+  assert.match(errors[0], /Paymaster Token mode is not configured/)
+  assert.doesNotMatch(errors.join('\n'), /private-key/)
 })
 
 test('create verifies funds, creates a unique sandbox, previews, confirms, funds, and locks both wallets', async () => {
@@ -539,7 +595,93 @@ test('create locks both wallets when funding fails', async () => {
   })
   assert.equal(exitCode, 1)
   assert.deepEqual(locks, ['rationa31f', 'rationtreasury'])
-  assert.equal(errors[0], 'The treasury does not have enough USD₮ for this budget and its transaction fee.')
+  assert.equal(errors[0], 'The treasury does not have enough USD₮ for this amount and its gas fee.')
+})
+
+test('create rejects a zero-fee quote without confirming or broadcasting', async () => {
+  const { errors, output } = captureOutput()
+  const locks = []
+  let confirmed = false
+  let broadcasts = 0
+  const exitCode = await main(['create', '--budget', '5'], {
+    output,
+    createWalletName: () => 'rationa31f',
+    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
+    runWdkGetUsdtBalance: async () => ({ balance: '50000000', formatted: '50 USDT' }),
+    runWdkWalletCreate: async () => {},
+    runWdkWalletUnlock: async () => {},
+    runWdkGetAddress: async () => ({ address: '0xsandbox' }),
+    runWdkTransfer: async (input) => {
+      if (!input.dryRun) broadcasts++
+      return { ...preview(), estimatedFee: '0' }
+    },
+    confirmTransfer: async () => { confirmed = true },
+    runWdkWalletLock: async (name) => locks.push(name)
+  })
+
+  assert.equal(exitCode, 1)
+  assert.equal(confirmed, false)
+  assert.equal(broadcasts, 0)
+  assert.deepEqual(locks, ['rationa31f', 'rationtreasury'])
+  assert.deepEqual(errors, ['WDK did not return a valid USD₮ gas quote. Nothing was broadcast.'])
+})
+
+test('create rejects a gas quote at or above the WDK safety limit', async () => {
+  for (const estimatedFee of ['100000', '2431183']) {
+    const { errors, output } = captureOutput()
+    const locks = []
+    let confirmed = false
+    const exitCode = await main(['create', '--budget', '5'], {
+      output,
+      createWalletName: () => 'rationa31f',
+      runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
+      runWdkGetUsdtBalance: async () => ({ balance: '50000000', formatted: '50 USDT' }),
+      runWdkWalletCreate: async () => {},
+      runWdkWalletUnlock: async () => {},
+      runWdkGetAddress: async () => ({ address: '0xsandbox' }),
+      runWdkTransfer: async () => ({ ...preview(), estimatedFee }),
+      confirmTransfer: async () => { confirmed = true },
+      runWdkWalletLock: async (name) => locks.push(name)
+    })
+
+    assert.equal(exitCode, 1)
+    assert.equal(confirmed, false)
+    assert.deepEqual(locks, ['rationa31f', 'rationtreasury'])
+    assert.match(errors[0], /exceeds the WDK safety limit/)
+    assert.equal(errors[1], 'Nothing was broadcast.')
+  }
+})
+
+test('paymaster failures are redacted and both wallets are locked', async () => {
+  const { errors, output } = captureOutput()
+  const locks = []
+  const providerDetail = 'never-print-this-provider-detail'
+  const exitCode = await main(['create', '--budget', '5'], {
+    output,
+    createWalletName: () => 'rationa31f',
+    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
+    runWdkGetUsdtBalance: async () => ({ balance: '50000000', formatted: '50 USDT' }),
+    runWdkWalletCreate: async () => {},
+    runWdkWalletUnlock: async () => {},
+    runWdkGetAddress: async () => ({ address: '0xsandbox' }),
+    runWdkTransfer: async (input) => {
+      if (input.dryRun) return preview()
+      throw new WalletTransferError(
+        'broadcast',
+        1,
+        null,
+        `Paymaster rejected: ${providerDetail}`,
+        'UNKNOWN_ERROR'
+      )
+    },
+    confirmTransfer: async () => true,
+    runWdkWalletLock: async (name) => locks.push(name)
+  })
+
+  assert.equal(exitCode, 1)
+  assert.deepEqual(locks, ['rationa31f', 'rationtreasury'])
+  assert.match(errors[0], /USD₮ gas payment failed through Candide/)
+  assert.doesNotMatch(errors.join('\n'), new RegExp(providerDetail))
 })
 
 test('a lock failure prevents create from claiming success', async () => {
@@ -756,6 +898,7 @@ test('run locks all wallets, opens only the selected sandbox, and prints a balan
     'Sandbox   rationa31f',
     'Budget    5.00 USDT',
     'TTL       10m',
+    'Gas       paid from sandbox in USD₮',
     '',
     'Starting claude...',
     '',

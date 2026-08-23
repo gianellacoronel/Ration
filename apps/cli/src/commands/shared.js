@@ -5,9 +5,16 @@ import {
   WalletLockError,
   WalletTransferError,
   WalletUnlockError,
+  WdkConfigError,
   WdkCliUnavailableError
 } from '../errors.js'
-import { runWdkWalletList, runWdkWalletLock, runWdkWalletLockAll } from '../wdk.js'
+import { inspectPaymasterTokenConfig } from '../paymaster.js'
+import {
+  runWdkGetNetworkConfig,
+  runWdkWalletList,
+  runWdkWalletLock,
+  runWdkWalletLockAll
+} from '../wdk.js'
 
 export function parseSingleValueFlag (args, command, flag) {
   if (args.length !== 3 || args[0] !== command || args[1] !== flag ||
@@ -86,6 +93,26 @@ export async function loadWallets (options, output, failurePrefix = 'Could not i
   }
 }
 
+export async function requirePaymasterTokenMode (options, output) {
+  let config
+  try {
+    config = await (options.runWdkGetNetworkConfig ?? runWdkGetNetworkConfig)()
+  } catch (error) {
+    if (error instanceof WdkCliUnavailableError) unavailableMessage(output)
+    else if (error instanceof WdkConfigError) output.error('Could not inspect WDK paymaster configuration.')
+    else throw error
+    return null
+  }
+
+  const paymaster = inspectPaymasterTokenConfig(config)
+  if (paymaster.ready) return paymaster
+
+  output.error('WDK Paymaster Token mode is not configured for the Ration Sepolia environment.')
+  output.error('Use Candide\'s current public Sepolia endpoint and the registered test USD₮ paymaster token.')
+  output.error('No Candide API key or sponsorship policy is required.')
+  return null
+}
+
 export function transferFailureMessage (error, amount, output) {
   if (error instanceof WdkCliUnavailableError) {
     unavailableMessage(output)
@@ -100,11 +127,12 @@ export function transferFailureMessage (error, amount, output) {
     error.wdkCode === 'INSUFFICIENT_FUNDS' ||
     /token balance lower/i.test(error.message)
   ) {
-    output.error('The treasury does not have enough USD₮ for this budget and its transaction fee.')
+    output.error('The treasury does not have enough USD₮ for this amount and its gas fee.')
     output.error("Add USD₮ to the treasury address shown by 'ration setup', then try again.")
   } else if (error.wdkCode === 'WALLET_NOT_UNLOCKED' || error.wdkCode === 'WALLET_LOCKED') {
     output.error('The treasury was locked before funding completed. Try again.')
   } else {
-    output.error('Funding failed through WDK. Try again.')
+    output.error('The USD₮ gas payment failed through Candide. Nothing was broadcast.')
+    output.error('Check the paymaster availability and the wallet balance, then try again.')
   }
 }

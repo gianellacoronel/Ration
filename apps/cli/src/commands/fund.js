@@ -2,12 +2,14 @@ import { NETWORK, SETUP_REQUIRED, TREASURY_NAME } from '../config.js'
 import { formatUsdtBaseUnits, isRationWalletName, isTreasuryConfigured, parseUsdt } from '../domain.js'
 import { WalletTransferError, WdkCliUnavailableError } from '../errors.js'
 import { confirmTransfer } from '../prompts.js'
+import { paymasterTokenFee } from '../paymaster.js'
 import { runWdkGetAddress, runWdkTransfer, runWdkWalletUnlock } from '../wdk.js'
 import {
   loadWallets,
   lockWallets,
   operationExitCode,
   printWalletError,
+  requirePaymasterTokenMode,
   transferFailureMessage
 } from './shared.js'
 
@@ -36,6 +38,8 @@ export async function fundCommand (args, options, output) {
     output.error(`Sandbox '${name}' was not found.`)
     return 1
   }
+  const paymaster = await requirePaymasterTokenMode(options, output)
+  if (!paymaster) return 1
 
   const unlock = options.runWdkWalletUnlock ?? runWdkWalletUnlock
   const getAddress = options.runWdkGetAddress ?? runWdkGetAddress
@@ -59,12 +63,23 @@ export async function fundCommand (args, options, output) {
       dryRun: true
     }
     const preview = await transfer(input)
-    output.log('Sandbox funding preview')
-    output.log(`  Sandbox       ${name}`)
-    output.log(`  Amount        ${formatUsdtBaseUnits(amountUnits)}`)
-    output.log(`  Estimated fee ${formatUsdtBaseUnits(preview.estimatedFee)}`)
-    if (await confirm() !== true) cancelled = true
-    else result = await transfer({ ...input, dryRun: false })
+    const fee = paymasterTokenFee(preview)
+    if (fee === null) {
+      output.error('WDK did not return a valid USD₮ gas quote. Nothing was broadcast.')
+      exitCode = 1
+    } else if (fee >= paymaster.transferMaxFee) {
+      const limit = formatUsdtBaseUnits(paymaster.transferMaxFee)
+      output.error(`The estimated gas fee ${formatUsdtBaseUnits(fee)} exceeds the WDK safety limit of ${limit}.`)
+      output.error('Nothing was broadcast.')
+      exitCode = 1
+    } else {
+      output.log('Sandbox funding preview')
+      output.log(`  Sandbox       ${name}`)
+      output.log(`  Amount        ${formatUsdtBaseUnits(amountUnits)}`)
+      output.log(`  Estimated fee ${formatUsdtBaseUnits(fee)}`)
+      if (await confirm() !== true) cancelled = true
+      else result = await transfer({ ...input, dryRun: false })
+    }
   } catch (error) {
     exitCode = operationExitCode(error)
     if (error instanceof WalletTransferError || error instanceof WdkCliUnavailableError) {

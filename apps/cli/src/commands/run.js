@@ -8,6 +8,7 @@ import {
   lockAllWallets,
   operationExitCode,
   printWalletError,
+  requirePaymasterTokenMode,
   unavailableMessage
 } from './shared.js'
 
@@ -37,6 +38,7 @@ export async function runCommand (args, options, output) {
     output.error(`Sandbox '${input.name}' was not found.`)
     return 1
   }
+  if (!(await requirePaymasterTokenMode(options, output))) return 1
 
   const initialLock = await lockAllWallets(options, output, undefined, 'preparation')
   if (!initialLock.allLocked) return 1
@@ -62,6 +64,7 @@ export async function runCommand (args, options, output) {
       output.log(`Sandbox   ${input.name}`)
       output.log(`Budget    ${formatUsdtBaseUnits(initialBalance)}`)
       output.log(`TTL       ${input.ttl}m`)
+      output.log('Gas       paid from sandbox in USD₮')
       output.log('')
       output.log(`Starting ${input.command}...`)
       commandAttempted = true

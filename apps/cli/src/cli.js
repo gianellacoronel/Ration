@@ -10,6 +10,7 @@ export {
   resolveWdkCliPath,
   resolveWdkNetwork,
   runWdkGetAddress,
+  runWdkGetNetworkConfig,
   runWdkGetUsdtBalance,
   runWdkTransfer,
   runWdkWalletCreate,

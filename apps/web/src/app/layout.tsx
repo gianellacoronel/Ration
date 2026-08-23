@@ -39,7 +39,7 @@ export const metadata: Metadata = {
   description: rationConfig.description,
   applicationName: rationConfig.name,
   icons: {
-    icon: "/favicon.ico",
+    icon: "/logo.jpeg",
   },
   openGraph: {
     type: "website",

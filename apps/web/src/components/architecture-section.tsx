@@ -22,7 +22,7 @@ export function ArchitectureSection() {
   return (
     <section
       id="architecture"
-      className="overflow-hidden border-t border-ration-dark/10 bg-[#eeede8] px-gutter py-section"
+      className="overflow-hidden border-t border-ration-dark/10 bg-ration-background-alt px-gutter py-section"
       aria-labelledby="architecture-title"
     >
       <div className="mx-auto max-w-content">

@@ -37,7 +37,7 @@ export function CtaSection() {
           <br />
           <span className="text-ration-orange">their own money.</span>
         </h2>
-        <p className="mt-8 max-w-[34rem] text-base leading-7 text-white/55 mobile:text-lg mobile:leading-8">
+        <p className="mt-8 max-w-[34rem] text-base leading-7 text-white/65 mobile:text-lg mobile:leading-8">
           Isolated financial sandboxes
           <br className="hidden mobile:block" /> for the next generation of software.
         </p>
@@ -45,7 +45,12 @@ export function CtaSection() {
           <a href={getStartedHref} className={primaryCtaStyles}>
             Get started
           </a>
-          <a href={githubHref} className={secondaryCtaStyles}>
+          <a
+            href={githubHref}
+            className={secondaryCtaStyles}
+            target="_blank"
+            rel="noreferrer"
+          >
             View on GitHub
             <svg viewBox="0 0 16 16" className="size-4" fill="none" aria-hidden="true">
               <path d="M4 12 12 4m0 0H6.5M12 4v5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />

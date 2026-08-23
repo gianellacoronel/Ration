@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 import { getStartedHref, navigation } from "@/config/navigation";
 
@@ -61,19 +62,24 @@ export function Navbar() {
       className="relative z-50 border-b border-ration-dark/10 bg-ration-background"
     >
       <div className="mx-auto flex h-20 max-w-content items-center justify-between px-gutter tablet:grid tablet:grid-cols-[1fr_auto_1fr]">
-        <a
-          href="#"
+        <Link
+          href="/"
           className="w-fit rounded-sm text-xl font-semibold tracking-[-0.04em] text-ration-dark focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange"
           aria-label="Ration home"
         >
           Ration
-        </a>
+        </Link>
 
         <nav aria-label="Primary navigation" className="hidden tablet:block">
           <ul className="flex items-center gap-8 desktop:gap-10">
             {navigation.map((item) => (
               <li key={item.href}>
-                <a href={item.href} className={linkStyles}>
+                <a
+                  href={item.href}
+                  className={linkStyles}
+                  target={item.href.startsWith("http") ? "_blank" : undefined}
+                  rel={item.href.startsWith("http") ? "noreferrer" : undefined}
+                >
                   {item.label}
                 </a>
               </li>
@@ -131,6 +137,8 @@ export function Navbar() {
                   className={`${linkStyles} block py-3 text-base`}
                   tabIndex={isOpen ? 0 : -1}
                   onClick={closeMenu}
+                  target={item.href.startsWith("http") ? "_blank" : undefined}
+                  rel={item.href.startsWith("http") ? "noreferrer" : undefined}
                 >
                   {item.label}
                 </a>

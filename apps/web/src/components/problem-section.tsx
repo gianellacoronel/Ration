@@ -23,7 +23,7 @@ function TraditionalDiagram({ visible }: { visible: boolean }) {
   return (
     <div className="flex min-h-[20rem] flex-col justify-center px-4 py-9 mobile:px-7">
       <div
-        className={`transition-[opacity,transform] duration-500 ease-ration ${
+        className={`motion-reveal transition-[opacity,transform] duration-500 ease-ration ${
           visible ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
         }`}
       >
@@ -31,7 +31,7 @@ function TraditionalDiagram({ visible }: { visible: boolean }) {
       </div>
 
       <div
-        className={`mx-auto h-10 w-px origin-top bg-ration-dark/20 transition-transform duration-500 ease-ration ${
+        className={`motion-reveal mx-auto h-10 w-px origin-top bg-ration-dark/20 transition-transform duration-500 ease-ration ${
           visible ? "scale-y-100" : "scale-y-0"
         }`}
         style={{ transitionDelay: "160ms" }}
@@ -39,7 +39,7 @@ function TraditionalDiagram({ visible }: { visible: boolean }) {
       />
 
       <div
-        className={`relative transition-[opacity,transform] duration-500 ease-ration ${
+        className={`motion-reveal relative transition-[opacity,transform] duration-500 ease-ration ${
           visible ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"
         }`}
         style={{ transitionDelay: "280ms" }}
@@ -70,7 +70,7 @@ function RationDiagram({ visible }: { visible: boolean }) {
   return (
     <div className="flex min-h-[20rem] flex-col justify-center px-4 py-9 mobile:px-7">
       <div
-        className={`transition-[opacity,transform] duration-500 ease-ration ${
+        className={`motion-reveal transition-[opacity,transform] duration-500 ease-ration ${
           visible ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
         }`}
       >
@@ -78,7 +78,7 @@ function RationDiagram({ visible }: { visible: boolean }) {
       </div>
 
       <div
-        className={`mx-auto h-9 w-px origin-top bg-ration-orange transition-transform duration-500 ease-ration ${
+        className={`motion-reveal mx-auto h-9 w-px origin-top bg-ration-orange transition-transform duration-500 ease-ration ${
           visible ? "scale-y-100" : "scale-y-0"
         }`}
         style={{ transitionDelay: "160ms" }}
@@ -86,7 +86,7 @@ function RationDiagram({ visible }: { visible: boolean }) {
       />
 
       <div
-        className={`relative transition-[opacity,transform] duration-500 ease-ration ${
+        className={`motion-reveal relative transition-[opacity,transform] duration-500 ease-ration ${
           visible ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"
         }`}
         style={{ transitionDelay: "280ms" }}
@@ -111,7 +111,7 @@ function RationDiagram({ visible }: { visible: boolean }) {
       </div>
 
       <div
-        className={`grid grid-cols-3 gap-2.5 transition-[opacity,transform] duration-500 ease-ration mobile:gap-4 ${
+        className={`motion-reveal grid grid-cols-3 gap-2.5 transition-[opacity,transform] duration-500 ease-ration mobile:gap-4 ${
           visible ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"
         }`}
         style={{ transitionDelay: "440ms" }}
@@ -176,7 +176,7 @@ export function ProblemSection() {
               <span className="text-ration-orange">your process&apos;s wallet.</span>
             </h2>
           </div>
-          <p className="max-w-[24rem] border-l border-ration-dark/15 pl-5 text-sm leading-6 text-ration-dark/55 tablet:mb-1">
+          <p className="max-w-[24rem] border-l border-ration-dark/15 pl-5 text-sm leading-6 text-ration-dark/65 tablet:mb-1">
             Separate process access from your main wallet with purpose-built,
             temporary sandboxes.
           </p>
@@ -188,7 +188,7 @@ export function ProblemSection() {
               <h3 className="text-sm font-semibold tracking-[-0.01em] text-ration-dark">
                 Traditional
               </h3>
-              <span className="font-mono text-[0.625rem] tracking-[0.12em] text-ration-dark/35 uppercase">
+              <span className="font-mono text-[0.625rem] tracking-[0.12em] text-ration-dark/60 uppercase">
                 Shared access
               </span>
             </div>

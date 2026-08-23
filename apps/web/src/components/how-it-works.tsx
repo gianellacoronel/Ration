@@ -84,7 +84,7 @@ function StageMarker({
             ? "border-ration-orange bg-ration-orange text-white shadow-[0_0_0_5px_rgb(247_79_6/0.13)]"
             : complete
               ? "border-white/70 bg-ration-dark text-white"
-              : "border-white/20 bg-ration-dark text-white/35"
+              : "border-white/20 bg-ration-dark text-white/55"
         }`}
       >
         {step.number}
@@ -99,7 +99,7 @@ function StageMarker({
         </p>
         <p
           className={`mt-1.5 font-mono text-[0.5rem] tracking-[0.08em] uppercase transition-colors duration-500 ${
-            active ? "text-white/65" : "text-white/20"
+            active ? "text-white/70" : "text-white/45"
           }`}
         >
           {step.state}
@@ -116,16 +116,33 @@ function Lifecycle({ activeStep }: { activeStep: number }) {
   return (
     <div className="relative h-full overflow-hidden rounded-lg border border-white/10 bg-white/[0.025]">
       <div className="flex h-12 items-center justify-between border-b border-white/10 px-4 mobile:px-5">
-        <span className="font-mono text-[0.5625rem] tracking-[0.14em] text-white/35 uppercase">
+        <span className="font-mono text-[0.5625rem] tracking-[0.14em] text-white/55 uppercase">
           Lifecycle / 04
         </span>
         <span className="flex items-center gap-2 font-mono text-[0.5625rem] tracking-[0.12em] text-ration-orange-light uppercase">
-          <span className="size-1.5 animate-pulse rounded-full bg-ration-orange" />
+          <span className="size-1.5 rounded-full bg-ration-orange" />
           In sequence
         </span>
       </div>
 
-      <div className="relative flex h-[calc(100%-3rem)] flex-col px-3 py-8 mobile:px-5 desktop:hidden">
+      <div className="relative flex h-[calc(100%-3rem)] items-center px-2 tablet:hidden">
+        <div className="absolute right-[12.5%] left-[12.5%] h-px bg-white/10">
+          <span
+            className="block h-full bg-ration-orange transition-[width] duration-500 ease-ration"
+            style={{ width: progress }}
+          />
+        </div>
+        {steps.map((step, index) => (
+          <StageMarker
+            key={step.number}
+            index={index}
+            activeStep={activeStep}
+            direction="horizontal"
+          />
+        ))}
+      </div>
+
+      <div className="relative hidden h-[calc(100%-3rem)] flex-col px-5 py-8 tablet:flex desktop:hidden">
         <div className="absolute top-8 bottom-8 left-[1.62rem] w-px bg-white/10 mobile:left-[2.12rem]">
           <span
             className="block w-full bg-ration-orange transition-[height] duration-500 ease-ration"
@@ -204,8 +221,8 @@ export function HowItWorks() {
           <span className="text-white/38">in four explicit steps.</span>
         </h2>
 
-        <div className="mt-16 grid grid-cols-[5.5rem_minmax(0,1fr)] gap-4 mobile:grid-cols-[7.5rem_minmax(0,1fr)] mobile:gap-6 tablet:mt-20 desktop:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.72fr)] desktop:gap-16">
-          <aside className="sticky top-20 h-[calc(100dvh-6.5rem)] self-start desktop:top-24 desktop:h-[calc(100dvh-8rem)]">
+        <div className="mt-14 grid gap-8 tablet:mt-20 tablet:grid-cols-[7.5rem_minmax(0,1fr)] tablet:gap-6 desktop:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.72fr)] desktop:gap-16">
+          <aside className="sticky top-3 z-20 h-48 self-start bg-ration-dark tablet:top-20 tablet:h-[calc(100dvh-6.5rem)] desktop:top-24 desktop:h-[calc(100dvh-8rem)]">
             <Lifecycle activeStep={activeStep} />
           </aside>
 
@@ -220,7 +237,7 @@ export function HowItWorks() {
                     stepRefs.current[index] = element;
                   }}
                   data-step={index}
-                  className="flex min-h-[62dvh] items-center py-8 desktop:min-h-[58dvh]"
+                  className="flex min-h-[45dvh] items-center py-8 tablet:min-h-[62dvh] desktop:min-h-[58dvh]"
                   aria-current={active ? "step" : undefined}
                 >
                   <div
@@ -231,10 +248,10 @@ export function HowItWorks() {
                     }`}
                   >
                     <div className="mb-6 flex items-center justify-between gap-3 font-mono text-[0.625rem] tracking-[0.14em] uppercase">
-                      <span className={active ? "text-ration-orange-light" : "text-white/45"}>
+                      <span className={active ? "text-ration-orange-light" : "text-white/60"}>
                         {step.number} / {step.name}
                       </span>
-                      <span className="hidden text-white/25 mobile:block">
+                      <span className="hidden text-white/50 mobile:block">
                         {active ? "Active" : "Standby"}
                       </span>
                     </div>

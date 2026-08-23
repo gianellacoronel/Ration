@@ -16,8 +16,23 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: rationConfig.name,
+  title: rationConfig.title,
   description: rationConfig.description,
+  applicationName: rationConfig.name,
+  icons: {
+    icon: "/favicon.ico",
+  },
+  openGraph: {
+    type: "website",
+    title: rationConfig.title,
+    description: rationConfig.description,
+    siteName: rationConfig.name,
+  },
+  twitter: {
+    card: "summary",
+    title: rationConfig.title,
+    description: rationConfig.description,
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

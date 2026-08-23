@@ -19,14 +19,14 @@ export function Hero() {
 
           <h1
             id="hero-title"
-            className="max-w-[11ch] text-[clamp(3.25rem,8.2vw,6.75rem)] leading-[0.91] font-semibold tracking-[-0.065em] text-ration-dark desktop:text-[clamp(4.5rem,6vw,6.25rem)]"
+            className="max-w-[11ch] text-[clamp(3.25rem,8.2vw,6.75rem)] leading-[0.91] font-semibold tracking-[-0.065em] text-ration-dark desktop:text-[clamp(5rem,7vw,7rem)]"
           >
             Give every process
             <br />
             <span className="text-ration-orange">its own money.</span>
           </h1>
 
-          <p className="mt-8 max-w-[32rem] text-base leading-7 text-ration-dark/60 mobile:text-lg mobile:leading-8">
+          <p className="mt-8 max-w-[32rem] text-base leading-7 text-ration-dark/68 mobile:text-lg mobile:leading-8">
             Ration gives processes isolated, disposable wallets
             <br className="hidden mobile:block" /> with temporary access to real
             funds.
@@ -36,7 +36,12 @@ export function Hero() {
             <a href={getStartedHref} className={primaryCtaStyles}>
               Get started
             </a>
-            <a href={githubHref} className={secondaryCtaStyles}>
+            <a
+              href={githubHref}
+              className={secondaryCtaStyles}
+              target="_blank"
+              rel="noreferrer"
+            >
               View on GitHub
               <svg
                 viewBox="0 0 16 16"

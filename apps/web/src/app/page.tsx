@@ -12,8 +12,14 @@ import { SecurityPrinciples } from "@/components/security-principles";
 export default function Home() {
   return (
     <>
+      <a
+        href="#main-content"
+        className="fixed top-3 left-3 z-[100] -translate-y-20 rounded-sm bg-ration-dark px-4 py-2 text-sm font-semibold text-white transition-transform focus:translate-y-0 focus:outline-2 focus:outline-offset-2 focus:outline-ration-orange"
+      >
+        Skip to content
+      </a>
       <Navbar />
-      <main>
+      <main id="main-content" tabIndex={-1}>
         <Hero />
         <ProblemSection />
         <HowItWorks />

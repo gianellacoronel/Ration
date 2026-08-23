@@ -13,14 +13,13 @@ export const navigation = [
   },
   {
     label: "Docs",
-    href: "#docs",
+    href: rationConfig.docsUrl,
   },
 ] as const;
 
-export const getStartedHref = "#get-started";
+export const getStartedHref = "#cli";
 
-// Replace this placeholder when the public repository is available.
-export const githubHref = "#";
+export const githubHref = rationConfig.githubUrl;
 
 export const footerNavigation = [
   ...navigation,
@@ -29,3 +28,4 @@ export const footerNavigation = [
     href: githubHref,
   },
 ] as const;
+import { rationConfig } from "@/config/ration";

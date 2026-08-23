@@ -76,7 +76,7 @@ export function CliSection() {
   return (
     <section
       id="cli"
-      className="overflow-hidden border-t border-ration-dark/10 bg-[#eeede8] px-gutter py-section"
+      className="overflow-hidden border-t border-ration-dark/10 bg-ration-background-alt px-gutter py-section"
       aria-labelledby="cli-title"
     >
       <div className="mx-auto max-w-content">
@@ -99,18 +99,18 @@ export function CliSection() {
             </p>
           </div>
 
-          <div className="min-w-0 overflow-hidden rounded-lg border border-black/15 bg-[#171717] shadow-[0_30px_80px_rgb(28_28_28/0.2)]">
-            <div className="flex h-12 items-center justify-between border-b border-white/10 bg-[#202020] px-4 mobile:px-5">
+          <div className="min-w-0 overflow-hidden rounded-lg border border-black/15 bg-ration-terminal shadow-[0_30px_80px_rgb(28_28_28/0.2)]">
+            <div className="flex h-12 items-center justify-between border-b border-white/10 bg-ration-terminal-bar px-4 mobile:px-5">
               <div className="flex items-center gap-1.5" aria-hidden="true">
-                <span className="size-2.5 rounded-full bg-[#ff5f57]" />
-                <span className="size-2.5 rounded-full bg-[#febc2e]" />
-                <span className="size-2.5 rounded-full bg-[#28c840]" />
+                <span className="size-2.5 rounded-full bg-ration-window-close" />
+                <span className="size-2.5 rounded-full bg-ration-window-minimize" />
+                <span className="size-2.5 rounded-full bg-ration-window-maximize" />
               </div>
-              <span className="font-mono text-[0.625rem] tracking-[0.14em] text-white/35 uppercase">
+              <span className="font-mono text-[0.625rem] tracking-[0.14em] text-white/55 uppercase">
                 ration / cli
               </span>
-              <span className="flex items-center gap-2 font-mono text-[0.5625rem] tracking-[0.12em] text-white/40 uppercase">
-                <span className="size-1.5 rounded-full bg-[#56e39f]" aria-hidden="true" />
+              <span className="flex items-center gap-2 font-mono text-[0.5625rem] tracking-[0.12em] text-white/60 uppercase">
+                <span className="size-1.5 rounded-full bg-ration-success" aria-hidden="true" />
                 Ready
               </span>
             </div>
@@ -138,8 +138,8 @@ export function CliSection() {
                       tabIndex={active ? 0 : -1}
                       className={`relative min-h-14 cursor-pointer px-5 font-mono text-xs font-semibold tracking-[0.04em] outline-none transition-colors after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:transition-colors focus-visible:bg-white/5 ${
                         active
-                          ? "text-[#f74f06] after:bg-[#f74f06]"
-                          : "text-white/40 after:bg-transparent hover:text-white/75"
+                          ? "text-ration-orange after:bg-ration-orange"
+                          : "text-white/60 after:bg-transparent hover:text-white/80"
                       }`}
                       onClick={() => selectCommand(command.id)}
                       onKeyDown={(event) => handleTabKeyDown(event, index)}
@@ -158,13 +158,13 @@ export function CliSection() {
               className="min-w-0"
             >
               <div className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3 mobile:px-6">
-                <span className="font-mono text-[0.5625rem] tracking-[0.15em] text-white/30 uppercase">
+                <span className="font-mono text-[0.5625rem] tracking-[0.15em] text-white/55 uppercase">
                   Command
                 </span>
                 <button
                   type="button"
                   onClick={copyCommand}
-                  className="flex min-h-9 min-w-[6.75rem] cursor-pointer items-center justify-center gap-2 rounded-sm border border-white/10 px-3 text-[0.6875rem] font-semibold text-white/55 outline-none transition-[color,background-color,border-color] hover:border-white/20 hover:bg-white/5 hover:text-white focus-visible:border-ration-orange focus-visible:text-white"
+                  className="flex min-h-11 min-w-[6.75rem] cursor-pointer items-center justify-center gap-2 rounded-sm border border-white/10 px-3 text-[0.6875rem] font-semibold text-white/65 outline-none transition-[color,background-color,border-color] hover:border-white/20 hover:bg-white/5 hover:text-white focus-visible:border-ration-orange focus-visible:text-white"
                   aria-label={`Copy ${activeCommand.command}`}
                 >
                   <svg

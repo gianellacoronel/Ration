@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { footerNavigation } from "@/config/navigation";
 
 export function Footer() {
@@ -5,14 +7,14 @@ export function Footer() {
     <footer className="border-t border-white/10 bg-ration-dark px-gutter py-10 text-white mobile:py-12">
       <div className="mx-auto grid max-w-content gap-10 tablet:grid-cols-[1fr_auto] tablet:items-start">
         <div>
-          <a
-            href="#"
+          <Link
+            href="/"
             className="inline-block rounded-sm text-xl font-semibold tracking-[-0.04em] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange"
             aria-label="Ration home"
           >
             Ration
-          </a>
-          <p className="mt-4 text-sm leading-6 text-white/45">
+          </Link>
+          <p className="mt-4 text-sm leading-6 text-white/65">
             Financial sandboxes for processes.
           </p>
         </div>
@@ -24,6 +26,8 @@ export function Footer() {
                 <a
                   href={item.href}
                   className="rounded-sm text-sm font-medium text-white/55 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange"
+                  target={item.href.startsWith("http") ? "_blank" : undefined}
+                  rel={item.href.startsWith("http") ? "noreferrer" : undefined}
                 >
                   {item.label}
                 </a>
@@ -32,7 +36,7 @@ export function Footer() {
           </ul>
         </nav>
 
-        <p className="border-t border-white/10 pt-6 font-mono text-[0.625rem] tracking-[0.12em] text-white/30 tablet:col-span-2 tablet:mt-3">
+        <p className="border-t border-white/10 pt-6 font-mono text-[0.625rem] tracking-[0.12em] text-white/55 tablet:col-span-2 tablet:mt-3">
           © 2026 Ration
         </p>
       </div>

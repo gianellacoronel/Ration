@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { commands } from "@/config/commands";
+import {
+  commandVariables,
+  terminalCommandOptions,
+  type CommandName,
+} from "@/config/commands";
 import { terminalDemo } from "@/config/terminal-demo";
 
 export type TerminalState =
@@ -14,35 +18,11 @@ export type TerminalState =
   | "running"
   | "completed";
 
-type CommandName = "list" | "balance" | "run";
-
-const commandOptions = [
-  {
-    name: "list",
-    display: commands.list,
-    value: commands.list,
-  },
-  {
-    name: "balance",
-    display: commands.balance("[SANDBOX]"),
-    value: commands.balance(terminalDemo.sandbox),
-  },
-  {
-    name: "run",
-    display: commands.run("[SANDBOX]", "[TTL]", "[PROCESS]"),
-    value: commands.run(
-      terminalDemo.sandbox,
-      terminalDemo.ttl,
-      terminalDemo.process,
-    ),
-  },
-] satisfies Array<{ name: CommandName; display: string; value: string }>;
-
 const runStages: Record<Exclude<TerminalState, "idle" | "typing">, number> = {
-  checking: 1500,
-  locking: 1300,
-  unlocking: 1400,
-  running: 2200,
+  checking: 700,
+  locking: 600,
+  unlocking: 650,
+  running: 1300,
   completed: 0,
 };
 
@@ -56,18 +36,12 @@ const stateLabels: Record<TerminalState, string> = {
   completed: "Complete",
 };
 
-function wait(duration: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, duration));
-}
-
 function VariableCommand({ text }: { text: string }) {
   const variables = [
     terminalDemo.sandbox,
     terminalDemo.ttl,
     terminalDemo.process,
-    "[SANDBOX]",
-    "[TTL]",
-    "[PROCESS]",
+    ...Object.values(commandVariables),
   ];
   const pattern = new RegExp(
     `(${variables.map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`,
@@ -75,7 +49,7 @@ function VariableCommand({ text }: { text: string }) {
   );
 
   return text.split(pattern).map((part, index) =>
-    variables.includes(part) ? (
+    variables.includes(part as (typeof variables)[number]) ? (
       <span className="font-medium text-ration-orange-light" key={`${part}-${index}`}>
         {part}
       </span>
@@ -88,7 +62,7 @@ function VariableCommand({ text }: { text: string }) {
 function Check({ children }: { children: React.ReactNode }) {
   return (
     <p>
-      <span className="mr-2 text-[#56e39f]">✓</span>
+      <span className="mr-2 text-ration-success">✓</span>
       {children}
     </p>
   );
@@ -168,9 +142,9 @@ function RunOutput({ state }: { state: TerminalState }) {
             <dt>Spent</dt>
             <dd className="text-white">{terminalDemo.spent}</dd>
             <dt>Remaining</dt>
-            <dd className="text-[#56e39f]">{terminalDemo.remaining}</dd>
+            <dd className="text-ration-success">{terminalDemo.remaining}</dd>
             <dt>Sandbox</dt>
-            <dd className="text-white">locked</dd>
+            <dd className="text-white">{terminalDemo.status}</dd>
           </dl>
         </div>
       )}
@@ -190,8 +164,8 @@ function CommandOutput({ command, state }: { command: CommandName; state: Termin
         <dl className="grid grid-cols-[6.5rem_auto]">
           <dt>{terminalDemo.sandbox}</dt>
           <dd>
-            <span className="text-[#56e39f]">{terminalDemo.initialBalance}</span>
-            <span className="ml-3 text-white/40">locked</span>
+            <span className="text-ration-success">{terminalDemo.balance}</span>
+            <span className="ml-3 text-white/40">{terminalDemo.status}</span>
           </dd>
         </dl>
       </div>
@@ -206,9 +180,9 @@ function CommandOutput({ command, state }: { command: CommandName; state: Termin
         <dt>Sandbox</dt>
         <dd className="text-white">{terminalDemo.sandbox}</dd>
         <dt>Balance</dt>
-        <dd className="text-[#56e39f]">{terminalDemo.initialBalance}</dd>
+        <dd className="text-ration-success">{terminalDemo.balance}</dd>
         <dt>Status</dt>
-        <dd className="text-white">locked</dd>
+        <dd className="text-white">{terminalDemo.status}</dd>
       </dl>
     );
   }
@@ -232,28 +206,48 @@ export function TerminalDemo() {
   const [selectedCommand, setSelectedCommand] = useState<CommandName>("run");
   const [state, setState] = useState<TerminalState>("idle");
   const [typedCommand, setTypedCommand] = useState("");
-  const [copiedCommand, setCopiedCommand] = useState<CommandName | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<{
+    name: CommandName;
+    status: "copied" | "failed";
+  } | null>(null);
+  const [reducedMotion, setReducedMotion] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  const copyTimeout = useRef<number | null>(null);
 
-  const command = commandOptions.find(({ name }) => name === selectedCommand)!;
+  const command = terminalCommandOptions.find(({ name }) => name === selectedCommand)!;
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handleChange = (event: MediaQueryListEvent) => setReducedMotion(event.matches);
+    media.addEventListener("change", handleChange);
+    return () => media.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeout.current) window.clearTimeout(copyTimeout.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (state !== "typing") return;
 
     if (typedCommand.length === command.value.length) {
-      const timeout = window.setTimeout(() => setState("checking"), 450);
+      const timeout = window.setTimeout(() => setState("checking"), 220);
       return () => window.clearTimeout(timeout);
     }
 
     const timeout = window.setTimeout(
       () => setTypedCommand(command.value.slice(0, typedCommand.length + 1)),
-      34,
+      22,
     );
     return () => window.clearTimeout(timeout);
   }, [command.value, state, typedCommand]);
 
   useEffect(() => {
     if (state === "checking" && selectedCommand !== "run") {
-      const timeout = window.setTimeout(() => setState("completed"), 1100);
+      const timeout = window.setTimeout(() => setState("completed"), 650);
       return () => window.clearTimeout(timeout);
     }
 
@@ -281,22 +275,24 @@ export function TerminalDemo() {
 
   function execute(name: CommandName) {
     if (state !== "idle" && state !== "completed") return;
+    const nextCommand = terminalCommandOptions.find((option) => option.name === name)!;
     setSelectedCommand(name);
-    setTypedCommand("");
-    setState("typing");
+    setTypedCommand(reducedMotion ? nextCommand.value : "");
+    setState(reducedMotion ? "completed" : "typing");
   }
 
   async function copy(name: CommandName, value: string) {
-    if (!navigator.clipboard) return;
+    if (copyTimeout.current) window.clearTimeout(copyTimeout.current);
 
     try {
+      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(value);
-      setCopiedCommand(name);
-      await wait(1600);
-      setCopiedCommand((current) => (current === name ? null : current));
+      setCopyFeedback({ name, status: "copied" });
     } catch {
-      setCopiedCommand(null);
+      setCopyFeedback({ name, status: "failed" });
     }
+
+    copyTimeout.current = window.setTimeout(() => setCopyFeedback(null), 1400);
   }
 
   const isExecuting = state !== "idle" && state !== "completed";
@@ -305,32 +301,32 @@ export function TerminalDemo() {
     <div className="animate-fade-in overflow-hidden rounded-lg border border-white/10 bg-ration-dark shadow-[0_28px_70px_rgb(28_28_28/0.24)] [animation-delay:180ms]">
       <div className="flex h-12 items-center justify-between border-b border-white/10 bg-ration-dark-soft px-4">
         <div className="flex items-center gap-1.5" aria-hidden="true">
-          <span className="size-2.5 rounded-full bg-[#ff5f57]" />
-          <span className="size-2.5 rounded-full bg-[#febc2e]" />
-          <span className="size-2.5 rounded-full bg-[#28c840]" />
+          <span className="size-2.5 rounded-full bg-ration-window-close" />
+          <span className="size-2.5 rounded-full bg-ration-window-minimize" />
+          <span className="size-2.5 rounded-full bg-ration-window-maximize" />
         </div>
-        <span className="font-mono text-[0.6875rem] font-medium tracking-[0.12em] text-white/45 uppercase">
+        <span className="hidden font-mono text-[0.6875rem] font-medium tracking-[0.12em] text-white/60 uppercase mobile:block">
           ration terminal
         </span>
         <span className="flex items-center gap-2 font-mono text-[0.625rem] tracking-[0.1em] text-white/50 uppercase">
-          <span className="size-1.5 rounded-full bg-[#56e39f]" aria-hidden="true" />
+          <span className="size-1.5 rounded-full bg-ration-success" aria-hidden="true" />
           {stateLabels[state]}
         </span>
       </div>
 
       <div className="border-b border-white/10 bg-white/[0.025] px-4 py-4 mobile:px-5">
-        <p className="mb-2.5 font-mono text-[0.625rem] font-medium tracking-[0.14em] text-white/35 uppercase">
+        <p className="mb-2.5 font-mono text-[0.625rem] font-medium tracking-[0.14em] text-white/60 uppercase">
           Try:
         </p>
         <div className="grid gap-2" aria-label="Demo commands">
-          {commandOptions.map((option) => (
+          {terminalCommandOptions.map((option) => (
             <div
               className="flex min-w-0 items-stretch rounded-sm border border-white/10 bg-white/[0.025] transition-colors focus-within:border-ration-orange-light/60 hover:border-white/20"
               key={option.name}
             >
               <button
                 type="button"
-                className="min-w-0 flex-1 cursor-pointer overflow-x-auto px-3 py-2.5 text-left font-mono text-[0.6875rem] whitespace-nowrap text-white/65 outline-none disabled:cursor-wait disabled:opacity-45 mobile:text-xs"
+                className="min-h-11 min-w-0 flex-1 cursor-pointer overflow-x-auto px-3 py-2.5 text-left font-mono text-[0.6875rem] whitespace-nowrap text-white/65 outline-none disabled:cursor-wait disabled:opacity-45 mobile:text-xs"
                 disabled={isExecuting}
                 onClick={() => execute(option.name)}
                 aria-label={`Run ${option.value}`}
@@ -339,25 +335,30 @@ export function TerminalDemo() {
               </button>
               <button
                 type="button"
-                className="w-[4.75rem] shrink-0 cursor-pointer border-l border-white/10 px-2 font-sans text-[0.625rem] font-semibold tracking-[0.05em] text-white/45 outline-none transition-colors hover:bg-white/5 hover:text-white focus-visible:bg-white/5 focus-visible:text-white"
+                className="min-h-11 w-[4.75rem] shrink-0 cursor-pointer border-l border-white/10 px-2 font-sans text-[0.625rem] font-semibold tracking-[0.05em] text-white/60 outline-none transition-colors hover:bg-white/5 hover:text-white focus-visible:bg-white/5 focus-visible:text-white"
                 onClick={() => copy(option.name, option.value)}
                 aria-label={`Copy ${option.value}`}
               >
-                {copiedCommand === option.name ? "✓ Copied" : "Copy"}
+                {copyFeedback?.name === option.name
+                  ? copyFeedback.status === "copied"
+                    ? "✓ Copied"
+                    : "Try again"
+                  : "Copy"}
               </button>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="min-h-[25rem] overflow-x-auto p-5 mobile:p-6 desktop:min-h-[28rem] desktop:p-7">
+      <div className="min-h-[22rem] overflow-x-auto p-4 mobile:min-h-[25rem] mobile:p-6 desktop:min-h-[28rem] desktop:p-7">
         <div
           className="min-w-max font-mono text-[0.75rem] leading-6 mobile:text-[0.8125rem] mobile:leading-7"
           role="log"
           aria-label="Simulated terminal output"
+          aria-busy={isExecuting}
         >
           {state === "idle" ? (
-            <p className="text-white/45">
+            <p className="text-white/65">
               Select a command to begin <Cursor />
             </p>
           ) : (
@@ -375,6 +376,13 @@ export function TerminalDemo() {
           </span>
         </div>
       </div>
+      <p className="sr-only" aria-live="polite">
+        {copyFeedback?.status === "copied"
+          ? "Command copied to clipboard."
+          : copyFeedback?.status === "failed"
+            ? "The command could not be copied."
+            : ""}
+      </p>
     </div>
   );
 }

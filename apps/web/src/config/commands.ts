@@ -1,3 +1,5 @@
+import { terminalDemo } from "@/config/terminal-demo";
+
 export const commandVariables = {
   sandbox: "${SANDBOX}",
   ttl: "${TTL}",
@@ -13,23 +15,50 @@ export const commands = {
     `ration run ${sandbox} --ttl ${ttl} -- ${process}`,
 } as const;
 
+export type CommandName = "list" | "balance" | "run";
+
+export const terminalCommandOptions = [
+  {
+    name: "list",
+    display: commands.list,
+    value: commands.list,
+  },
+  {
+    name: "balance",
+    display: commands.balance(commandVariables.sandbox),
+    value: commands.balance(terminalDemo.sandbox),
+  },
+  {
+    name: "run",
+    display: commands.run(
+      commandVariables.sandbox,
+      commandVariables.ttl,
+      commandVariables.process,
+    ),
+    value: commands.run(
+      terminalDemo.sandbox,
+      terminalDemo.ttl,
+      terminalDemo.process,
+    ),
+  },
+] satisfies Array<{ name: CommandName; display: string; value: string }>;
+
 export const cliCommands = [
   {
     id: "list",
     label: "List",
     command: commands.list,
     output: `SANDBOX       STATUS      BALANCE
-sandbox_01    locked      5.00 USDT
-sandbox_02    locked      10.00 USDT`,
+${terminalDemo.sandbox.padEnd(14)}${terminalDemo.status.padEnd(12)}${terminalDemo.balance}`,
   },
   {
     id: "balance",
     label: "Balance",
     command: commands.balance(commandVariables.sandbox),
-    output: `Sandbox: sandbox_01
+    output: `Sandbox: ${terminalDemo.sandbox}
 
-Balance: 5.00 USDT
-Status:  locked`,
+Balance: ${terminalDemo.balance}
+Status:  ${terminalDemo.status}`,
   },
   {
     id: "run",
@@ -47,8 +76,8 @@ Process started
 Process exited
 
 Sandbox locked
-Spent: 1.24 USDT
-Remaining: 3.76 USDT`,
+Spent: ${terminalDemo.spent}
+Remaining: ${terminalDemo.remaining}`,
   },
 ] as const;
 

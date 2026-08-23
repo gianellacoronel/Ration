@@ -92,7 +92,7 @@ export function SecurityPrinciples() {
               <span className="text-white/38">clear boundaries.</span>
             </h2>
           </div>
-          <p className="border-l border-white/15 pl-5 text-sm leading-6 text-white/48 tablet:mb-1">
+          <p className="border-l border-white/15 pl-5 text-sm leading-6 text-white/65 tablet:mb-1">
             Practical constraints for processes that need access to real funds.
           </p>
         </div>
@@ -101,13 +101,13 @@ export function SecurityPrinciples() {
           {principles.map((principle, index) => (
             <article
               key={principle.number}
-              className={`group min-h-[19rem] bg-ration-dark-soft p-6 transition-[opacity,transform,background-color] duration-700 ease-ration hover:bg-[#2b2b2b] mobile:p-8 ${
+              className={`motion-reveal group min-h-[19rem] bg-ration-dark-soft p-6 transition-[opacity,transform,background-color] duration-500 ease-ration hover:bg-ration-dark-raised mobile:p-8 ${
                 visible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
               }`}
               style={{ transitionDelay: `${index * 110}ms` }}
             >
               <div className="flex items-start justify-between gap-4">
-                <span className="font-mono text-[0.625rem] tracking-[0.14em] text-white/28">
+                <span className="font-mono text-[0.625rem] tracking-[0.14em] text-white/55">
                   {principle.number} / 04
                 </span>
                 <span className="flex size-10 items-center justify-center rounded-md border border-white/10 text-ration-orange-light transition-[border-color,background-color,transform] duration-300 group-hover:-translate-y-0.5 group-hover:border-ration-orange/35 group-hover:bg-ration-orange/10 [&>svg]:size-5">
@@ -118,7 +118,7 @@ export function SecurityPrinciples() {
                 <h3 className="text-[clamp(1.6rem,2.5vw,2.15rem)] leading-none font-semibold tracking-[-0.04em]">
                   {principle.title}
                 </h3>
-                <p className="mt-5 max-w-[17rem] text-sm leading-6 text-white/48">
+                <p className="mt-5 max-w-[17rem] text-sm leading-6 text-white/65">
                   {principle.description}
                 </p>
               </div>

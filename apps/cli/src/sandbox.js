@@ -16,7 +16,7 @@ function sleep (ms) {
 }
 
 export function lifecycleGasReserve (tokenFee, nativeFee) {
-  const fee = tokenFee + nativeFee
+  const fee = tokenFee * 2n + nativeFee
   return (fee * GAS_RESERVE_NUMERATOR + GAS_RESERVE_DENOMINATOR - 1n) /
     GAS_RESERVE_DENOMINATOR
 }

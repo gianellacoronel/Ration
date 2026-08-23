@@ -26,6 +26,7 @@ Ration generates 64 cryptographically random bytes of sandbox seed material in m
 - Node.js 22.18.0 or newer
 - npm
 - The official WDK CLI `sepolia` network configured with a working Sepolia RPC
+- An MCP client with form elicitation support for confirmed transfers
 - Test USDT at `0xd077A400968890Eacc75cdc901F0356c943e4fDb`
 - Sepolia ETH for infrastructure gas
 
@@ -41,8 +42,8 @@ ration setup
 # Fund the one displayed EOA address with both test USDT and Sepolia ETH.
 
 ration status
-ration run --budget 0.5 -- opencode
-# Or: ration run --budget 0.5 -- codex
+ration run --budget 0.5 -- codex
+# OpenCode can be used once its installed version supports MCP form elicitation.
 ration run --budget 0.5 -- node -e "console.log('Hello from the sandbox')"
 ```
 
@@ -61,12 +62,12 @@ The normal session lifecycle is:
 1. Validate the official standard Sepolia EVM configuration.
 2. Create one in-memory standard WDK EOA.
 3. Unlock the persistent treasury and read its USDT and ETH balances.
-4. Quote the sandbox's USDT sweep and native ETH return through the official SDK.
+4. Quote one agent USDT payment, the sandbox's USDT sweep, and native ETH return through the official SDK.
 5. Add a small buffer and dry-run the treasury's ETH and USDT transfers through the official CLI.
 6. Fail before confirmation or broadcast unless the treasury has the exact USDT budget and enough ETH for all session infrastructure.
 7. Provision the ephemeral EOA with its small ETH reserve, then transfer the exact requested USDT budget.
 8. Lock the treasury and start a restricted MCP server backed by the same ephemeral seed.
-9. Launch OpenCode or Codex with transient local stdio MCP configuration after both balances are visible.
+9. Launch the requested supported MCP client with transient local stdio configuration after both balances are visible.
 10. On child exit or interruption, close the MCP server and its WDK resources.
 11. Sweep the full remaining USDT balance first, then return economical ETH.
 12. Dispose the sandbox SDK account and manager, zero Ration's seed buffer, and drop references.
@@ -89,9 +90,13 @@ The server registers one `sepolia` wallet, the three existing read-only tools, a
 - `getAddress`
 - `getBalance` for native Sepolia ETH, returned as both formatted ETH and canonical wei
 - `getTokenBalance` for Sepolia USDT
-- `transfer` for Sepolia USDT; the Toolkit quotes the fee and requires explicit MCP elicitation confirmation before broadcast
+- `transfer` for Sepolia USDT; the Toolkit quotes the fee and requires explicit MCP elicitation confirmation before broadcast, then Ration waits for chain confirmation before returning the result
 
 No native transfer, arbitrary transaction, signing, quote, swap, bridge, wallet-management, pricing, indexer, protocol, or custom marketplace tools are registered. Sepolia is the only registered chain and USDT is the only registered token, so `transfer` cannot resolve another asset. The MCP WDK derives the account independently and Ration fails closed if its address does not exactly match the funded sandbox. It never connects to the WDK CLI daemon and cannot see `rationtreasury`.
+
+Transfers fail closed when the launched MCP client does not support form elicitation. Ration does not disable or auto-accept the Toolkit confirmation flow.
+
+The WDK MCP server and its tool behavior are client-neutral. Ration contains small launch adapters only for transiently attaching that standard server to Codex and OpenCode without modifying their persistent configuration.
 
 ## Security Model
 
@@ -115,7 +120,7 @@ This project targets Sepolia and test USDT. WDK packages are beta software; use 
 ```bash
 npm run ration -- setup
 npm run ration -- status
-npm run ration -- run --budget 0.5 -- opencode
+npm run ration -- run --budget 0.5 -- codex
 npm test
 ```
 

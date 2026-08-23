@@ -19,6 +19,41 @@ import { formatEthBaseUnits } from './domain.js'
 
 const CHAIN = 'sepolia'
 const SERVER_NAME = 'ration'
+const TRANSACTION_TIMEOUT_MS = 180000
+const MCP_TOOL_TIMEOUT_SECONDS = 240
+const CONFIRMED_TRANSFER = Symbol('confirmedTransfer')
+
+async function confirmedTransaction (account, hash) {
+  const receipt = await account.waitForTransaction(hash, {
+    target: 'confirmed',
+    timeout: TRANSACTION_TIMEOUT_MS
+  })
+  if (receipt.finality === 'dropped' || receipt.success === false) {
+    throw new Error('The sandbox transfer was not confirmed successfully.')
+  }
+}
+
+function confirmTokenTransfers (server, pending) {
+  server.wdk.registerMiddleware(CHAIN, async (account) => {
+    if (account[CONFIRMED_TRANSFER]) return
+
+    const broadcast = account.transfer.bind(account)
+    account.transfer = async (options) => {
+      const operation = (async () => {
+        const result = await broadcast(options)
+        await confirmedTransaction(account, result.hash)
+        return result
+      })()
+      pending.add(operation)
+      try {
+        return await operation
+      } finally {
+        pending.delete(operation)
+      }
+    }
+    Object.defineProperty(account, CONFIRMED_TRANSFER, { value: true })
+  })
+}
 
 function getSepoliaBalance (server) {
   server.registerTool(
@@ -134,6 +169,7 @@ function configureCodex (args, env, bridgeCommand) {
     `mcp_servers.${SERVER_NAME}.command=${tomlString(command)}`,
     `mcp_servers.${SERVER_NAME}.args=[${commandArgs.map(tomlString).join(',')}]`,
     `mcp_servers.${SERVER_NAME}.enabled_tools=["getAddress","getBalance","getTokenBalance","transfer"]`,
+    `mcp_servers.${SERVER_NAME}.tool_timeout_sec=${MCP_TOOL_TIMEOUT_SECONDS}`,
     `mcp_servers.${SERVER_NAME}.required=true`
   ]
   return {
@@ -149,11 +185,13 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
   const createTransport = options.createTransport ?? ((socket) => new StdioServerTransport(socket, socket))
   const makeTempDirectory = options.mkdtemp ?? mkdtemp
   const remove = options.rm ?? rm
+  const pendingConfirmations = new Set()
   const server = new McpServer('ration-sandbox', '0.1.0')
     .useWdk({ seed })
     .registerWallet(CHAIN, WalletManager, config)
     .registerToken(CHAIN, 'USDT', { address: USDT_ADDRESS, decimals: 6 })
     .registerTools(SANDBOX_TOOLS)
+  confirmTokenTransfers(server, pendingConfirmations)
   let directory
   let socketServer
   let connection
@@ -166,6 +204,7 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
     closed = true
     let closeError
     try {
+      await Promise.allSettled(pendingConfirmations)
       await server.close()
     } catch (error) {
       closeError = error

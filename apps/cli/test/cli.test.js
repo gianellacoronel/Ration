@@ -27,7 +27,7 @@ const STANDARD_CONFIG = {
   provider: 'https://ethereum-sepolia-rpc.publicnode.com',
   transferMaxFee: 5000000000000000
 }
-const GAS_RESERVE = 88750n
+const GAS_RESERVE = 151250n
 
 function main (args, options = {}) {
   return cliMain(args, {

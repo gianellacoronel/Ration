@@ -50,7 +50,7 @@ test('ephemeral EOA keeps mutable seed bytes in memory and zeroes them on dispos
   assert.equal(seed.every((byte) => byte === 0), true)
 })
 
-test('quotes a buffered ETH reserve for USDT sweep and native cleanup', async () => {
+test('quotes a buffered ETH reserve for one payment, USDT sweep, and native cleanup', async () => {
   const quotes = []
   const account = {
     getAddress: async () => '0xephemeral',
@@ -83,7 +83,7 @@ test('quotes a buffered ETH reserve for USDT sweep and native cleanup', async ()
 })
 
 test('sizes lifecycle gas from a higher positive-transfer fee floor', () => {
-  assert.equal(lifecycleGasReserve(80000n, 21000n), 126250n)
+  assert.equal(lifecycleGasReserve(80000n, 21000n), 226250n)
 })
 
 test('sweeps the full USDT balance before returning economical ETH', async () => {

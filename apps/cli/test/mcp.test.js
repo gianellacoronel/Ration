@@ -31,6 +31,10 @@ function fakeWallet (events, seed, address = '0xEphemeral') {
     transfer: async (options) => {
       events.push(['transfer', options])
       return { hash: '0xpayment', fee: 41000n }
+    },
+    waitForTransaction: async (hash, options) => {
+      events.push(['confirmed', hash, options])
+      return { finality: 'confirmed', success: true }
     }
   }
 
@@ -124,6 +128,11 @@ test('serves the existing reads and confirmed Sepolia USDT transfer for the same
       'transfer',
       { token: USDT_ADDRESS, recipient: '0xRecipient', amount: 50000n }
     ]])
+    assert.deepEqual(events.filter((event) => event[0] === 'confirmed'), [[
+      'confirmed',
+      '0xpayment',
+      { target: 'confirmed', timeout: 180000 }
+    ]])
     assert.equal(confirmations.length, 1)
     assert.match(confirmations[0].message, /Amount: 0\.05 USDT \(50000 base units\)/)
     assert.match(confirmations[0].message, /Estimated Fee: 42000/)
@@ -168,6 +177,7 @@ test('does not broadcast a USDT transfer when Toolkit confirmation is declined',
     assert.equal(result.isError, true)
     assert.equal(events.filter((event) => event[0] === 'quote-transfer').length, 1)
     assert.equal(events.some((event) => event[0] === 'transfer'), false)
+    assert.equal(events.some((event) => event[0] === 'confirmed'), false)
   } finally {
     await client.close()
     await service.close()
@@ -187,6 +197,7 @@ test('configures Codex transiently without putting wallet credentials in argumen
     const enabledTools = launch.args.find((arg) => arg.startsWith('mcp_servers.ration.enabled_tools='))
     assert.match(joined, /mcp_servers\.ration\.command/)
     assert.equal(enabledTools, 'mcp_servers.ration.enabled_tools=["getAddress","getBalance","getTokenBalance","transfer"]')
+    assert.equal(launch.args.includes('mcp_servers.ration.tool_timeout_sec=240'), true)
     assert.doesNotMatch(joined, /rationtreasury/)
     assert.equal(joined.includes(Buffer.from(seed).toString('hex')), false)
     assert.deepEqual(launch.args.slice(-2), ['exec', 'hello'])

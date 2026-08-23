@@ -10,6 +10,8 @@ export const commands = {
   status: "ration status",
   run: (budget: string, process: string) =>
     `ration run --budget ${budget} -- ${process}`,
+  recover: "ration recover",
+  history: "ration history",
 } as const;
 
 export type CommandName = "setup" | "status" | "run";
@@ -37,36 +39,72 @@ export const cliCommands = [
     id: "setup",
     label: "Setup",
     command: commands.setup,
+    copyValue: commands.setup,
     output: `Treasury ready
 
-Account: standard Sepolia EOA
-Store:   encrypted WDK CLI wallet
-Fund:    test USDT + Sepolia ETH`,
+  Address   0x…
+  Account   standard Sepolia EOA
+  Status    locked
+
+Fund this same address with both test USD₮ and Sepolia ETH before running a session.`,
   },
   {
     id: "status",
     label: "Status",
     command: commands.status,
+    copyValue: commands.status,
     output: `Ration treasury
 
-Balance: ${terminalDemo.treasuryBalance}
-Status:  locked`,
+Address   0x…
+USDT      ${terminalDemo.treasuryBalance}
+Gas       ${terminalDemo.treasuryGas}
+Status    locked`,
   },
   {
     id: "run",
     label: "Run",
     command: commands.run(commandVariables.budget, commandVariables.process),
-    output: `Budget        ${terminalDemo.balance}
+    copyValue: commands.run(terminalDemo.budget, terminalDemo.process),
+    output: `Sandbox funding
+
+Budget        ${terminalDemo.balance}
 Gas reserve   ${terminalDemo.gasReserve} (infrastructure)
 
-Ephemeral EOA created
-Wallet access pending restricted MCP
-Process started
+Fund this sandbox? [y/N] y
+
+Ration
+
+Sandbox   0x…
+Budget    ${terminalDemo.balance}
+Access    Ration MCP
 
 ...
 
-USDT swept / ETH recovered
-Sandbox disposed`,
+Session complete
+
+Returned    unused test USDT
+Sandbox     disposed`,
+  },
+  {
+    id: "recover",
+    label: "Recover",
+    command: commands.recover,
+    copyValue: commands.recover,
+    output: `No funded Ration sessions require recovery.
+
+If a funded crash journal exists, Ration re-derives that session wallet and retries the return path.`,
+  },
+  {
+    id: "history",
+    label: "History",
+    command: commands.history,
+    copyValue: commands.history,
+    output: `Recent sessions
+
+Session ID  Started               Spent       Status     Command
+8f2a1c4d    2026-08-23T14:20Z     0.03 USDT   disposed   opencode
+
+Local receipts record activity and cleanup outcomes without storing child argument values.`,
   },
 ] as const;
 

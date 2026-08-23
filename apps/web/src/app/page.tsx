@@ -23,10 +23,10 @@ export default function Home() {
         <Hero />
         <ProblemSection />
         <HowItWorks />
-        <CliSection />
         <AgentsSection />
-        <SecurityPrinciples />
         <ArchitectureSection />
+        <CliSection />
+        <SecurityPrinciples />
         <CtaSection />
       </main>
       <Footer />

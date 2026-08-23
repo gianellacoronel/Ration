@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { GitFork, Menu, Moon, Sun, X } from "lucide-react";
+import { ArrowRight, Menu, Moon, Sun, X } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { githubHref, navigation } from "@/config/navigation";
+import { getStartedHref, navigation } from "@/config/navigation";
 import { themeConfig, type Theme } from "@/config/theme";
 
 const linkStyles =
@@ -67,12 +67,10 @@ export function Navbar() {
 
         <div className="flex items-center gap-2">
           <a
-            href={githubHref}
-            target="_blank"
-            rel="noreferrer"
+            href={getStartedHref}
             className="hidden min-h-10 items-center gap-2 border px-3 font-mono text-xs uppercase tracking-[0.08em] text-foreground transition-colors hover:border-ration-orange hover:text-ration-orange mobile:flex"
           >
-            <GitFork size={17} strokeWidth={1.8} /> GitHub
+            Run CLI <ArrowRight size={17} strokeWidth={1.8} />
           </a>
           <button
             type="button"

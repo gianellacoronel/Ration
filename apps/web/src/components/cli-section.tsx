@@ -18,9 +18,11 @@ const variablePattern = new RegExp(
 );
 
 const commandHighlights: Record<CliCommandId, string> = {
-  setup: "Human-owned treasury.",
-  status: "Explicit balance.",
-  run: "Isolated execution.",
+  setup: "Create the treasury.",
+  status: "Inspect and relock it.",
+  run: "Approve one session.",
+  recover: "Retry the return path.",
+  history: "Read the receipt.",
 };
 
 function HighlightedCommand({ command }: { command: string }) {
@@ -71,7 +73,7 @@ export function CliSection() {
     if (feedbackTimeout.current) clearTimeout(feedbackTimeout.current);
 
     try {
-      await navigator.clipboard.writeText(activeCommand.command);
+      await navigator.clipboard.writeText(activeCommand.copyValue);
       setCopyFeedback("copied");
     } catch {
       setCopyFeedback("failed");
@@ -90,15 +92,15 @@ export function CliSection() {
         <div className="grid gap-12 desktop:grid-cols-[minmax(15rem,0.7fr)_minmax(0,1.3fr)] desktop:items-center desktop:gap-16">
           <div>
             <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">
-              Interface / Ration CLI
+               Product proof / current CLI
             </p>
             <h2
               id="cli-title"
               className="display-type text-[clamp(3rem,5.5vw,5.25rem)] leading-[0.86] text-foreground"
             >
-              <span className="block whitespace-nowrap">Built</span>
-              <span className="block whitespace-nowrap">For the</span>
-              <span className="block whitespace-nowrap">Terminal.</span>
+              <span className="block whitespace-nowrap">The proof</span>
+              <span className="block whitespace-nowrap">Is in</span>
+              <span className="block whitespace-nowrap">The run.</span>
             </h2>
             <p className="mt-9 border-l-2 border-ration-orange pl-5 font-mono text-sm leading-7 text-muted">
               {Object.entries(commandHighlights).map(([id, label]) => (
@@ -175,7 +177,7 @@ export function CliSection() {
                   type="button"
                   onClick={copyCommand}
                   className="flex min-h-11 min-w-27 cursor-pointer items-center justify-center gap-2 rounded-sm border border-ration-cream/15 px-3 font-mono text-[0.6875rem] text-ration-cream/65 outline-none transition-colors hover:border-ration-orange hover:text-ration-orange focus-visible:border-ration-orange focus-visible:text-ration-orange"
-                  aria-label={`Copy ${activeCommand.command}`}
+                  aria-label={`Copy ${activeCommand.copyValue}`}
                 >
                   {copyFeedback === "copied" ? <Check size={15} /> : <Copy size={15} />}
                   {copyFeedback === "copied"
@@ -198,6 +200,7 @@ export function CliSection() {
               </div>
 
               <div className="min-h-66 p-4 mobile:min-h-75 mobile:p-6">
+                <p className="mb-4 font-mono text-[0.5625rem] uppercase tracking-[0.15em] text-ration-cream/40">Illustrative Sepolia output</p>
                 <pre
                   key={activeCommand.id}
                   className="animate-fade-in font-mono text-[0.6875rem] leading-6 whitespace-pre-wrap text-ration-cream/58 mobile:text-xs mobile:leading-7"

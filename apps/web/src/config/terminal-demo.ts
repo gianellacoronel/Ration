@@ -1,6 +1,6 @@
 export const terminalDemo = {
   budget: "1",
-  process: "claude",
+  process: "opencode",
   treasuryBalance: "5.00 USDT",
   treasuryGas: "0.01 ETH",
   balance: "1.00 USDT",

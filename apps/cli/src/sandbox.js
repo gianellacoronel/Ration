@@ -31,6 +31,7 @@ async function confirmedTransaction (account, hash) {
   if (receipt.finality === 'dropped' || receipt.success === false) {
     throw new Error('The sandbox transaction was not confirmed successfully.')
   }
+  return receipt
 }
 
 export async function createEphemeralSandbox (config, options = {}) {
@@ -95,7 +96,7 @@ export async function createEphemeralSandbox (config, options = {}) {
       },
       async sweepUsdt (recipient) {
         const balance = await account.getTokenBalance(USDT_ADDRESS)
-        if (balance === 0n) return { amount: 0n, fee: 0n, remaining: 0n }
+        if (balance === 0n) return { amount: 0n, fee: 0n, remaining: 0n, transactions: [] }
 
         const quote = await account.quoteTransfer({
           token: USDT_ADDRESS,
@@ -103,51 +104,101 @@ export async function createEphemeralSandbox (config, options = {}) {
           amount: balance
         })
         if (quote.fee <= 0n || await account.getBalance() < quote.fee) {
-          return { amount: 0n, fee: quote.fee, remaining: balance }
+          return { amount: 0n, fee: quote.fee, remaining: balance, transactions: [] }
         }
-        const result = await account.transfer({
-          token: USDT_ADDRESS,
-          recipient,
-          amount: balance
-        })
-        await confirmedTransaction(account, result.hash)
+        const transaction = {
+          hash: null,
+          amount: balance,
+          fee: quote.fee,
+          status: 'submission_unknown'
+        }
+        let result
+        try {
+          result = await account.transfer({
+            token: USDT_ADDRESS,
+            recipient,
+            amount: balance
+          })
+          Object.assign(transaction, {
+            hash: result.hash,
+            fee: result.fee,
+            status: 'confirmation_unknown'
+          })
+          await confirmedTransaction(account, result.hash)
+          transaction.status = 'confirmed'
+        } catch (error) {
+          const failure = error instanceof Error ? error : new Error('The token sweep failed.')
+          failure.partialSweep = {
+            amount: 0n,
+            fee: 0n,
+            hash: transaction.hash,
+            transactions: [transaction],
+            remaining: balance
+          }
+          throw failure
+        }
+        let remaining = null
+        try {
+          remaining = await account.getTokenBalance(USDT_ADDRESS)
+        } catch {}
         return {
           amount: balance,
           fee: result.fee,
           hash: result.hash,
-          remaining: await account.getTokenBalance(USDT_ADDRESS)
+          transactions: [transaction],
+          remaining
         }
       },
       async sweepEth (recipient) {
         let amount = 0n
         let fee = 0n
         let hash
+        const transactions = []
 
-        for (let round = 0; round < 5; round++) {
-          const balance = await account.getBalance()
-          const quote = await account.quoteSendTransaction({ to: recipient, value: 0n })
-          if (quote.fee <= 0n) throw new Error('WDK returned an invalid native sweep fee.')
-          if (balance <= quote.fee) return { amount, fee, hash, remaining: balance }
+        try {
+          for (let round = 0; round < 5; round++) {
+            const balance = await account.getBalance()
+            const quote = await account.quoteSendTransaction({ to: recipient, value: 0n })
+            if (quote.fee <= 0n) throw new Error('WDK returned an invalid native sweep fee.')
+            if (balance <= quote.fee) return { amount, fee, hash, transactions, remaining: balance }
 
-          const value = balance - quote.fee
-          const exactQuote = await account.quoteSendTransaction({ to: recipient, value })
-          if (exactQuote.fee <= 0n || balance <= exactQuote.fee) {
-            return { amount, fee, hash, remaining: balance }
+            const value = balance - quote.fee
+            const exactQuote = await account.quoteSendTransaction({ to: recipient, value })
+            if (exactQuote.fee <= 0n || balance <= exactQuote.fee) {
+              return { amount, fee, hash, transactions, remaining: balance }
+            }
+            const exactValue = balance - exactQuote.fee
+            const transaction = {
+              hash: null,
+              amount: exactValue,
+              fee: exactQuote.fee,
+              status: 'submission_unknown'
+            }
+            transactions.push(transaction)
+            const result = await account.sendTransaction({ to: recipient, value: exactValue })
+            Object.assign(transaction, {
+              hash: result.hash,
+              fee: result.fee,
+              status: 'confirmation_unknown'
+            })
+            await confirmedTransaction(account, result.hash)
+            transaction.status = 'confirmed'
+            amount += exactValue
+            fee += result.fee
+            hash = result.hash
           }
-          const exactValue = balance - exactQuote.fee
-          const result = await account.sendTransaction({ to: recipient, value: exactValue })
-          await confirmedTransaction(account, result.hash)
-          amount += exactValue
-          fee += result.fee
-          hash = result.hash
-        }
 
-        const remaining = await account.getBalance()
-        const finalQuote = await account.quoteSendTransaction({ to: recipient, value: 0n })
-        if (remaining > finalQuote.fee) {
-          throw new Error('The native sweep left an economical remainder.')
+          const remaining = await account.getBalance()
+          const finalQuote = await account.quoteSendTransaction({ to: recipient, value: 0n })
+          if (remaining > finalQuote.fee) {
+            throw new Error('The native sweep left an economical remainder.')
+          }
+          return { amount, fee, hash, transactions, remaining }
+        } catch (error) {
+          const failure = error instanceof Error ? error : new Error('The native sweep failed.')
+          failure.partialSweep = { amount, fee, hash, transactions, remaining: null }
+          throw failure
         }
-        return { amount, fee, hash, remaining }
       },
       dispose
     }

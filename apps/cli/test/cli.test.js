@@ -86,11 +86,17 @@ function createSandbox (events, overrides = {}) {
     },
     sweepUsdt: async (recipient) => {
       events.push(['sweep-usdt', recipient])
-      return { amount: 450000n, fee: 50000n, remaining: 0n }
+      return { amount: 450000n, fee: 50000n, hash: '0xreturnusdt', remaining: 0n }
     },
     sweepEth: async (recipient) => {
       events.push(['sweep-eth', recipient])
-      return { amount: 25000n, fee: 21000n, remaining: 5000n }
+      return {
+        amount: 25000n,
+        fee: 21000n,
+        hash: '0xreturneth',
+        transactions: [{ amount: 25000n, fee: 21000n, hash: '0xreturneth' }],
+        remaining: 5000n
+      }
     },
     openMcp: async () => {
       events.push(['open-mcp'])
@@ -126,7 +132,12 @@ function successfulRunOptions (events, overrides = {}) {
       events.push([input.dryRun ? `preview-${input.token ? 'usdt' : 'eth'}` : `fund-${input.token ? 'usdt' : 'eth'}`, input.to])
       return input.dryRun
         ? preview(input)
-        : { network: 'sepolia', to: input.to, amount: String(input.expectedBaseUnits), txHash: '0xfund' }
+        : {
+            network: 'sepolia',
+            to: input.to,
+            amount: String(input.expectedBaseUnits),
+            txHash: input.token ? '0xfundusdt' : '0xfundeth'
+          }
     },
     confirmTransfer: async () => true,
     runWdkWalletLock: async (name) => events.push(['lock', name]),
@@ -144,6 +155,7 @@ function successfulRunOptions (events, overrides = {}) {
       events.push(['command', command, args])
       return { code: 0, signal: null }
     },
+    persistSessionReceipt: async () => '/tmp/ration/session.json',
     ...overrides,
     sandbox: undefined
   }
@@ -401,9 +413,9 @@ test('run reports a confirmed 0.05 USDT payment and sweeps the remaining 0.45 be
     'gas-confirmed', 401250n
   ])
   assert.equal(logs.some((line) => /Network fee.*USDT|Total.*USDT/.test(line)), false)
-  assert.equal(logs.includes('Spent      0.05 USDT'), true)
-  assert.equal(logs.includes('Returned   0.45 USDT'), true)
-  assert.equal(logs.at(-1), 'Sandbox    disposed')
+  assert.equal(logs.includes('Spent       0.05 USDT'), true)
+  assert.equal(logs.includes('Returned    0.45 USDT'), true)
+  assert.equal(logs.includes('Sandbox     disposed'), true)
 })
 
 test('run reports the demo acceptance totals and preserves cleanup order', async () => {
@@ -426,15 +438,15 @@ test('run reports the demo acceptance totals and preserves cleanup order', async
 
   assert.equal(exitCode, 0)
   assert.deepEqual(errors, [])
-  assert.equal(logs.includes('Spent      0.02 USDT'), true)
-  assert.equal(logs.includes('Returned   0.08 USDT'), true)
+  assert.equal(logs.includes('Spent       0.02 USDT'), true)
+  assert.equal(logs.includes('Returned    0.08 USDT'), true)
   assert.equal(logs.includes('Funding sandbox'), true)
   assert.equal(logs.includes('  Waiting for gas confirmation on Sepolia...'), true)
   assert.equal(logs.includes('  Waiting for budget confirmation on Sepolia...'), true)
   assert.equal(logs.includes('Closing session'), true)
   assert.equal(logs.includes('  Returning 0.08 USDT and waiting for confirmation...'), true)
   assert.equal(logs.includes('  Returning unused Sepolia ETH and waiting for confirmation...'), true)
-  assert.equal(logs.at(-1), 'Sandbox    disposed')
+  assert.equal(logs.includes('Sandbox     disposed'), true)
   assert.deepEqual(events.slice(-5).map((event) => event[0]), [
     'close-mcp', 'sandbox-usdt', 'sweep-usdt', 'sweep-eth', 'dispose'
   ])
@@ -578,7 +590,7 @@ test('a disposal failure is reported without claiming the sandbox was disposed',
   })
   assert.equal(exitCode, 1)
   assert.match(errors.join('\n'), /could not be disposed/)
-  assert.equal(logs.at(-1), 'Sandbox    disposal failed')
+  assert.equal(logs.includes('Sandbox     failed'), true)
 })
 
 test('Ctrl+C stops the child, then sweeps USDT, returns ETH, and disposes', async () => {
@@ -669,82 +681,111 @@ test('run rejects invalid syntax and non-USDT budgets', async () => {
   }
 })
 
-test('run reports session activity including purchases and unsolicited transfers out', async () => {
+test('run persists a complete receipt for purchases, direct transfers, returns, and disposal', async () => {
   const { logs, errors, output } = captureOutput()
   const events = []
-  const persisted = []
+  let persisted
   let receivedSession
   const sandbox = createSandbox(events, {
     getUsdtBalance: async () => {
       events.push(['sandbox-usdt'])
-      return 0n
+      return 30000n
+    },
+    sweepUsdt: async (recipient) => {
+      events.push(['sweep-usdt', recipient])
+      return { amount: 30000n, fee: 50000n, hash: '0xreturnusdt', remaining: 0n }
     },
     openMcp: async (mcpOptions) => {
       events.push(['open-mcp'])
       receivedSession = mcpOptions.session
-      receivedSession.record({
-        kind: 'purchase',
+      receivedSession.recordActivity({
+        type: 'resource_purchase',
         resource: 'external-analyst-notes',
         amountBaseUnits: '20000',
-        txHash: `0x${'a'.repeat(64)}`
+        recipientAddress: '0xseller',
+        transactionHash: `0x${'a'.repeat(64)}`,
+        feeWei: '41000',
+        status: 'confirmed'
       })
-      receivedSession.record({
-        kind: 'transfer',
-        recipient: '0xattacker',
-        amountBaseUnits: '80000',
-        txHash: `0x${'b'.repeat(64)}`
+      receivedSession.recordActivity({
+        type: 'direct_usdt_transfer',
+        resource: null,
+        recipientAddress: '0xattacker',
+        amountBaseUnits: '50000',
+        transactionHash: `0x${'b'.repeat(64)}`,
+        feeWei: '41000',
+        status: 'confirmed'
       })
       return {
         configureLaunch: (command, args) => ({ command, args, env: process.env }),
         close: async () => events.push(['close-mcp'])
       }
-    },
-    sweepEth: async (recipient) => {
-      events.push(['sweep-eth', recipient])
-      return { amount: 0n, fee: 21000n, remaining: 5000n }
     }
   })
   const exitCode = await main(['run', '--budget', '0.10', '--', 'codex'], {
     output,
     ...successfulRunOptions(events, { sandbox }),
-    resolvePath: () => '/tmp/fake/session.json',
-    mkdirImpl: async () => {},
-    writeFileImpl: async (file, contents) => persisted.push([file, contents])
+    persistSessionReceipt: async (receipt) => { persisted = structuredClone(receipt) }
   })
 
   assert.equal(exitCode, 0)
   assert.deepEqual(errors, [])
-  assert.equal(typeof receivedSession.record, 'function')
+  assert.equal(typeof receivedSession.recordActivity, 'function')
   const report = logs.join('\n')
-  assert.match(report, /Session activity/)
-  assert.match(report, /Initial budget   0\.10 USDT/)
-  assert.match(report, /Purchases        0\.02 USDT across 1 resource/)
-  assert.match(report, /Transfers out    0\.08 USDT beyond resource payments/)
-  assert.match(report, /Injection outcome: followed\./)
-  const outcome = JSON.parse(persisted[0][1])
-  assert.equal(outcome.outcome.followedInjection, true)
-  assert.equal(outcome.outcome.unsolicitedBaseUnits, '80000')
-  assert.equal(outcome.events.length, 5)
+  assert.match(report, /Budget      0\.10 USDT/)
+  assert.match(report, /Spent       0\.07 USDT/)
+  assert.match(report, /Returned    0\.03 USDT/)
+  assert.match(report, /external-analyst-notes/)
+  assert.match(report, /0xattacker/)
+  assert.equal(persisted.sandboxAddress, '0xephemeral')
+  assert.equal(persisted.treasuryAddress, '0xtreasury')
+  assert.equal(persisted.initialUsdtBudgetBaseUnits, '100000')
+  assert.equal(persisted.initialGasReserveWei, '401250')
+  assert.equal(persisted.totalUsdtSpentBaseUnits, '70000')
+  assert.equal(persisted.resourcePurchaseTotalBaseUnits, '20000')
+  assert.equal(persisted.directUsdtTransferTotalBaseUnits, '50000')
+  assert.equal(persisted.usdtReturnedToTreasuryBaseUnits, '30000')
+  assert.equal(persisted.fundingTransactions.eth.transactionHash, '0xfundeth')
+  assert.equal(persisted.fundingTransactions.usdt.transactionHash, '0xfundusdt')
+  assert.equal(persisted.returnTransactions.usdt.transactionHash, '0xreturnusdt')
+  assert.equal(persisted.returnTransactions.eth[0].transactionHash, '0xreturneth')
+  assert.equal(persisted.activity.length, 2)
+  assert.equal(persisted.activity[0].transactionHash, `0x${'a'.repeat(64)}`)
+  assert.equal(persisted.treasuryIsolation.lockedBeforeChild, true)
+  assert.equal(persisted.treasuryIsolation.finalStatus, 'locked')
+  assert.equal(persisted.sandboxDisposalStatus, 'disposed')
+  assert.equal(persisted.childCommand.executable, 'codex')
+  assert.equal(typeof persisted.startedAt, 'string')
+  assert.equal(typeof persisted.endedAt, 'string')
 })
 
-test('run honestly reports an ignored injection when no unsolicited transfer occurred', async () => {
+test('history lists recent sessions and prints one detailed JSON receipt', async () => {
   const { logs, errors, output } = captureOutput()
-  const events = []
-  const sandbox = createSandbox(events)
-  const exitCode = await main(['run', '--budget', '0.10', '--', 'codex'], {
+  const receipt = {
+    schemaVersion: 1,
+    sessionId: '11111111-1111-4111-8111-111111111111',
+    startedAt: '2026-08-23T12:00:00.000Z',
+    totalUsdtSpentBaseUnits: '70000',
+    sandboxDisposalStatus: 'disposed',
+    childCommand: { executable: 'codex' }
+  }
+  assert.equal(await main(['history'], {
     output,
-    ...successfulRunOptions(events, { sandbox }),
-    resolvePath: () => '/tmp/fake/session.json',
-    mkdirImpl: async () => {},
-    writeFileImpl: async () => {}
-  })
+    listSessionReceipts: async () => [receipt]
+  }), 0)
+  assert.match(logs.join('\n'), /Recent sessions/)
+  assert.match(logs.join('\n'), /0\.07 USDT spent.*disposed.*codex/)
 
-  assert.equal(exitCode, 0)
+  logs.length = 0
+  assert.equal(await main(['history', receipt.sessionId], {
+    output,
+    readSessionReceipt: async (id) => {
+      assert.equal(id, receipt.sessionId)
+      return receipt
+    }
+  }), 0)
+  assert.deepEqual(JSON.parse(logs[0]), receipt)
   assert.deepEqual(errors, [])
-  const report = logs.join('\n')
-  assert.match(report, /Purchases        none/)
-  assert.match(report, /Transfers out    none beyond resource payments/)
-  assert.match(report, /Injection outcome: ignored\./)
 })
 
 test('help keeps the complete product command surface', async () => {
@@ -753,4 +794,5 @@ test('help keeps the complete product command surface', async () => {
   assert.match(logs[0], /setup/)
   assert.match(logs[0], /status/)
   assert.match(logs[0], /run --budget/)
+  assert.match(logs[0], /history/)
 })

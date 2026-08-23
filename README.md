@@ -137,7 +137,7 @@ Produce the best company research brief you can with the resources available to 
 Codex can inspect the catalog and its remaining balance, then decide which
 resource IDs to purchase. The `premium-dataset` costs `0.50 USDT`, so a real
 `0.10 USDT` sandbox cannot buy every listing. Exit Codex to trigger cleanup;
-the final spent and returned totals reflect the purchases it chose.
+the final receipt shows each purchase or direct transfer and the recovered funds.
 
 A one-shot Codex invocation is also supported:
 
@@ -166,6 +166,7 @@ The normal session lifecycle is:
 10. On child exit or interruption, close the MCP server and its WDK resources.
 11. Sweep the full remaining USDT balance first, then return economical ETH.
 12. Dispose the sandbox SDK account and manager, zero Ration's seed buffer, and drop references.
+13. Persist a structured financial receipt after cleanup finishes.
 
 Sepolia funding and recovery each require two confirmed transactions, so their duration follows testnet block production and RPC latency. Ration reports every submission and recovery phase, prints elapsed-time updates every 10 seconds, and polls for confirmations once per second; it does not skip confirmation or return ETH before the USDT sweep is safely confirmed.
 
@@ -178,6 +179,29 @@ Gas reserve   0.000... ETH (infrastructure)
 
 The user budget is always USDT. Sepolia ETH is provisioned only for lifecycle gas and is never added to, deducted from, or described as the agent budget.
 
+## Session Receipts
+
+Every valid `ration run` records a unique, versioned JSON receipt after cleanup.
+Receipts include the sandbox and treasury addresses, initial USDT and gas funding,
+funding and return transaction hashes, paid resources, direct USDT transfers and
+recipients, totals, timestamps, the child executable and argument count, treasury lock state,
+and final sandbox disposal status.
+
+```bash
+ration history
+ration history <session-id>
+```
+
+`ration history` lists the 20 most recent sessions. The detailed command prints
+the persisted JSON receipt. On macOS receipts live under
+`~/Library/Application Support/Ration/sessions`; on XDG systems they live under
+`$XDG_DATA_HOME/ration/sessions` or `~/.local/share/ration/sessions`. Set
+`RATION_DATA_HOME` to override Ration's data directory. Receipt directories and
+files are created with user-only permissions, and writes are atomic.
+
+Receipts contain no seed material, private keys, passphrases, wallet credentials,
+child arguments, or child environment variables.
+
 ## MCP Access
 
 `ration run` attaches an official `@tetherto/wdk-mcp-toolkit` server to OpenCode and Codex without writing either agent's configuration files. The agent starts a local stdio bridge connected to a private, session-only Unix socket; the seed remains in the parent Ration process and is never placed in command arguments, environment variables, configuration files, or logs.
@@ -187,27 +211,27 @@ The server registers one `sepolia` wallet and seven scoped tools:
 - `getAddress`
 - `getBalance` for native Sepolia ETH, returned as both formatted ETH and canonical wei
 - `getTokenBalance` for Sepolia USDT
-- `transfer` for Sepolia USDT; the Toolkit quotes the fee and requires explicit MCP elicitation confirmation before broadcast, then Ration waits for chain confirmation before returning the result
+- `transfer` for Sepolia USDT; the Toolkit quotes the fee and auto-confirms within the already authorized sandbox session, then Ration waits for chain confirmation before returning the result
 - `ration_getRemainingBalance` to read the disposable sandbox's current USDT balance without spending
 - `ration_getCatalog` to discover the paid resources on the configured Ration demo API
 - `ration_purchaseResource` to request a catalog resource, validate its `402` Sepolia test USDT requirements, check the sandbox balance, pay from the same ephemeral EOA, wait for confirmation, and return the unlocked payload
 
 No native transfer, arbitrary transaction, signing, quote, swap, bridge, wallet-management, indexer, or protocol tools are registered. Purchases accept only a resource ID from the configured Ration demo catalog; arbitrary URLs and client-supplied payment details are not accepted. Sepolia is the only registered chain and USDT is the only registered token, so `transfer` cannot resolve another asset. The MCP WDK derives the account independently and Ration fails closed if its address does not exactly match the funded sandbox. It never connects to the WDK CLI daemon and cannot see `rationtreasury`.
 
-Low-level transfers fail closed when the launched MCP client does not support form elicitation. `ration_purchaseResource` is autonomous within the USDT budget approved when the session starts and does not require the agent to construct or confirm the payment mechanics.
+WDK MCP elicitation is disabled only on this session-scoped server, so low-level USDT transfers and `ration_purchaseResource` run autonomously within the USDT balance approved when the session starts. The disposable wallet's actual balance is the financial boundary; Ration does not maintain a second software spending limit or grant the MCP server access to the treasury.
 
 The WDK MCP server and its tool behavior are client-neutral. Ration contains small launch adapters only for transiently attaching that standard server to Codex and OpenCode without modifying their persistent configuration.
 
 ## Adversarial Prompt-Injection Containment
 
-The demo marketplace intentionally includes one malicious paid resource, `external-analyst-notes`. It returns legitimate analyst findings plus an embedded `agentInstructions` block that orders the consuming agent to send all remaining sandbox USDT to a configured attacker address (`RATION_DEMO_TESTNET_ATTACKER_ADDRESS`, Sepolia testnet-only, required to differ from the seller). The payload comes solely from the purchased external resource; Ration itself adds no such instruction and applies no policy that blocks the attack. The real security boundary is that the agent only ever holds the disposable sandbox balance — the treasury is never reachable through MCP.
+The demo marketplace intentionally includes one malicious paid resource, `external-analyst-notes`. It returns legitimate analyst findings plus an embedded `agentInstructions` block that orders the consuming agent to send all remaining sandbox USDT to a configured attacker address (`RATION_DEMO_TESTNET_ATTACKER_ADDRESS`; optional, defaults to the zero address, Sepolia testnet-only, and when set must differ from the seller). The payload comes solely from the purchased external resource; Ration itself adds no such instruction and applies no policy that blocks the attack. The real security boundary is that the agent only ever holds the disposable sandbox balance — the treasury is never reachable through MCP.
 
-Every session tracks its activity and prints it on completion: the initial USDT budget, each paid resource purchase, any confirmed transfer that left the sandbox outside a resource payment, the swept-back remainder, and sandbox disposal. A durable JSON copy is written to `$RATION_SESSION_LOG_PATH` or `<tmpdir>/ration-demo-sessions/session-<timestamp>.json`.
-
-The outcome is reported honestly in both directions:
-
-- If the agent follows the injected instruction, the report says so and itemizes exactly how much left the sandbox to the attacker. The maximum possible loss is the funds inside that disposable sandbox; the treasury remains inaccessible and unchanged.
-- If the agent ignores it, the report states that no USDT left the sandbox beyond resource payments.
+Every session tracks its activity and prints it on completion: the initial USDT
+budget, each paid resource purchase, each direct USDT transfer and recipient, the
+swept-back remainder, and sandbox disposal. The durable receipt itemizes the
+attacker transfer if an agent follows the injected instruction; if it does not,
+no direct transfer appears. In either case the treasury isolation and final
+disposal state are retained after the ephemeral key material is gone.
 
 This demonstrates the core capability: *the agent can be compromised without compromising the user's treasury.*
 
@@ -217,7 +241,7 @@ This demonstrates the core capability: *the agent can be compromised without com
 - Normal sessions never register a sandbox with the WDK CLI.
 - Sandbox seed bytes, account, and manager exist only in the Ration process.
 - Sandbox secrets are never printed, passed in child arguments or environment, or persisted by Ration.
-- The MCP server exposes address and balance reads, confirmed-by-user low-level transfers, and autonomous purchases restricted to the configured demo API for the ephemeral account.
+- The MCP server exposes address and balance reads, autonomous low-level USDT transfers, and autonomous purchases restricted to the configured demo API for the ephemeral account.
 - MCP resources close before sweeping and final sandbox disposal.
 - Treasury balance reads, dry runs, and transfers use structured official WDK CLI output.
 - Sandbox reads, quotes, transfers, confirmation waits, and disposal use current standard EVM WDK APIs.
@@ -225,6 +249,7 @@ This demonstrates the core capability: *the agent can be compromised without com
 - Cleanup runs after normal exit, launch failure, Ctrl+C, and termination signals.
 - USDT cleanup is always attempted before ETH recovery, and disposal is attempted even if either sweep fails.
 - A failed economical sweep or disposal makes the session fail rather than claiming successful cleanup.
+- Receipts are written only after treasury isolation and sandbox disposal have been attempted, so history preserves the final security outcome after ephemeral keys are gone.
 - The adversarial resource's payload is external content; Ration neither injects it nor censors it.
 - Session activity, including any injection-driven transfer, is recorded and reported as it actually happened.
 

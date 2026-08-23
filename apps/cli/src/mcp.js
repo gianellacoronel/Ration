@@ -1,4 +1,5 @@
 import { chmod, mkdtemp, rm } from 'node:fs/promises'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createServer } from 'node:net'
@@ -41,28 +42,46 @@ async function confirmedTransaction (account, hash) {
   }
 }
 
-function confirmTokenTransfers (server, pending, onConfirmedTransfer) {
+function confirmTokenTransfers (server, pending, session, paymentContext, isAcceptingPayments) {
   server.wdk.registerMiddleware(CHAIN, async (account) => {
     if (account[CONFIRMED_TRANSFER]) return
 
     const broadcast = account.transfer.bind(account)
     account.transfer = async (options) => {
+      if (!isAcceptingPayments()) {
+        throw new Error('The Ration session is closing and cannot start another payment.')
+      }
       const operation = (async () => {
+        const context = paymentContext.getStore()
+        const activityId = session?.recordActivity({
+          type: context?.type === 'resource_purchase' ? 'resource_purchase' : 'direct_usdt_transfer',
+          resource: context?.resource ?? null,
+          amountBaseUnits: options.amount.toString(),
+          recipientAddress: options.recipient,
+          transactionHash: null,
+          feeWei: null,
+          status: 'submission_unknown',
+          submittedAt: session?.now() ?? new Date().toISOString()
+        })
         const result = await broadcast(options)
-        await confirmedTransaction(account, result.hash)
-        return result
+        session?.updateActivity(activityId, {
+          transactionHash: result.hash,
+          feeWei: result.fee?.toString() ?? null,
+          status: 'broadcast',
+          broadcastAt: session.now()
+        })
+        try {
+          await confirmedTransaction(account, result.hash)
+          session?.updateActivity(activityId, { status: 'confirmed', confirmedAt: session.now() })
+          return result
+        } catch (error) {
+          session?.updateActivity(activityId, { status: 'confirmation_failed', failedAt: session.now() })
+          throw error
+        }
       })()
       pending.add(operation)
       try {
-        const result = await operation
-        onConfirmedTransfer?.({
-          recipient: typeof options.recipient === 'string' ? options.recipient : null,
-          amountBaseUnits: options.amount !== undefined && options.amount !== null
-            ? options.amount.toString()
-            : null,
-          txHash: result.hash
-        })
-        return result
+        return await operation
       } finally {
         pending.delete(operation)
       }
@@ -259,14 +278,17 @@ Args:
         if (!operation) {
           operation = (async () => {
             const account = await server.wdk.getAccount(CHAIN, 0)
-            const result = await purchaseResourceViaDemoApi({
-              origin,
-              resourceId,
-              account,
-              fetchImpl,
-              wait,
-              transferWaitsForConfirmation: true
-            })
+            const result = await options.paymentContext.run(
+              { type: 'resource_purchase', resource: resourceId },
+              () => purchaseResourceViaDemoApi({
+                origin,
+                resourceId,
+                account,
+                fetchImpl,
+                wait,
+                transferWaitsForConfirmation: true
+              })
+            )
             unlockedPayloads.set(resourceId, result.payload)
             return result
           })()
@@ -280,12 +302,6 @@ Args:
             purchaseOperations.delete(resourceId)
           }
         }
-        options.session?.record({
-          kind: 'purchase',
-          resource: resourceId,
-          amountBaseUnits: result.paidBaseUnits.toString(),
-          txHash: result.txHash ?? null
-        })
         const paidText = result.txHash
           ? ` Paid ${formatUsdtBaseUnits(result.paidBaseUnits)} with transaction ${result.txHash}.`
           : ''
@@ -402,17 +418,25 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
   const remove = options.rm ?? rm
   const resolveDemoOriginImpl = options.resolveDemoOrigin ?? resolveDemoOrigin
   const pendingConfirmations = new Set()
-  const server = new McpServer('ration-sandbox', '0.1.0')
+  const paymentContext = new AsyncLocalStorage()
+  let acceptingPayments = true
+  // Funding is the one-time authorization; this server only holds the sandbox key.
+  const server = new McpServer('ration-sandbox', '0.1.0', {
+    capabilities: { elicitation: false }
+  })
     .useWdk({ seed })
     .registerWallet(CHAIN, WalletManager, config)
     .registerToken(CHAIN, 'USDT', { address: USDT_ADDRESS, decimals: 6 })
     .registerTools(SANDBOX_TOOLS)
-  const session = options.session
-  confirmTokenTransfers(server, pendingConfirmations, (transfer) => {
-    session?.record({ kind: 'transfer', ...transfer })
-  })
+  confirmTokenTransfers(
+    server,
+    pendingConfirmations,
+    options.session,
+    paymentContext,
+    () => acceptingPayments
+  )
   const demoOrigin = resolveDemoOriginImpl(options.demoEnv ?? process.env)
-  registerDemoTools(server, demoOrigin, options)
+  registerDemoTools(server, demoOrigin, { ...options, paymentContext })
   let directory
   let socketServer
   let connection
@@ -423,9 +447,12 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
   const close = async () => {
     if (closed) return
     closed = true
+    acceptingPayments = false
     let closeError
     try {
-      await Promise.allSettled(pendingConfirmations)
+      while (pendingConfirmations.size > 0) {
+        await Promise.allSettled([...pendingConfirmations])
+      }
       await server.close()
     } catch (error) {
       closeError = error

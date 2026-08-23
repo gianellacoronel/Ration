@@ -1,6 +1,7 @@
 import { HELP } from './config.js'
 import { createOutput } from './output.js'
 import { activeChildren } from './processes.js'
+import { historyCommand } from './commands/history.js'
 import { runCommand } from './commands/run.js'
 import { setupCommand } from './commands/setup.js'
 import { statusCommand } from './commands/status.js'
@@ -18,6 +19,7 @@ async function dispatchMain (args, options = {}) {
     return setupCommand(options, output, { insecure: true })
   }
   if (args[0] === 'status') return statusCommand(args, options, output)
+  if (args[0] === 'history') return historyCommand(args, options, output)
   if (args[0] === 'run') return runCommand(args, options, output)
 
   output.error(`Unknown command: ${args.join(' ')}`)

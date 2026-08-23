@@ -4,6 +4,16 @@ export * from './errors.js'
 export { runRequestedCommand } from './processes.js'
 export { confirmTransfer } from './prompts.js'
 export {
+  createSessionReceipt,
+  finalizeSessionReceipt,
+  listSessionReceipts,
+  persistSessionReceipt,
+  readSessionReceipt,
+  renderHistory,
+  renderSessionSummary,
+  resolveRationDataDirectory
+} from './session.js'
+export {
   createWdkOutputFilter,
   resolveWdkCliPath,
   runWdkGetAddress,

@@ -21,7 +21,9 @@ export function unavailableMessage (output) {
 }
 
 export function operationExitCode (error) {
-  return error?.signal === 'SIGINT' ? 130 : 1
+  if (error?.signal === 'SIGINT') return 130
+  if (error?.signal === 'SIGTERM') return 143
+  return 1
 }
 
 export function throwIfInterrupted (signal) {

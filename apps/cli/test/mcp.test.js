@@ -8,6 +8,7 @@ import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { USDT_ADDRESS } from '../src/config.js'
 import { createSandboxMcpService } from '../src/mcp.js'
 import { createEphemeralSandbox } from '../src/sandbox.js'
+import { createSessionReceipt } from '../src/session.js'
 
 const config = {
   chainId: 11155111,
@@ -87,7 +88,7 @@ function jsonResponse (status, body) {
   })
 }
 
-function fakeWallet (events, seed, address = '0xEphemeral') {
+function fakeWallet (events, seed, address = '0xEphemeral', overrides = {}) {
   let tokenBalance = 100000n
   let transferCount = 0
   const account = {
@@ -103,6 +104,7 @@ function fakeWallet (events, seed, address = '0xEphemeral') {
     },
     transfer: async (options) => {
       events.push(['transfer', options])
+      if (options.amount > tokenBalance) throw new Error('insufficient wallet balance')
       tokenBalance -= options.amount
       transferCount++
       return { hash: transferCount === 1 ? '0xpayment' : `0xpayment${transferCount}`, fee: 41000n }
@@ -112,6 +114,7 @@ function fakeWallet (events, seed, address = '0xEphemeral') {
       return { finality: 'confirmed', success: true }
     }
   }
+  Object.assign(account, overrides)
 
   return class FakeWalletManager {
     constructor (receivedSeed, receivedConfig) {
@@ -131,12 +134,16 @@ function fakeWallet (events, seed, address = '0xEphemeral') {
   }
 }
 
-test('serves the existing reads and confirmed Sepolia USDT transfer for the same ephemeral EOA', async () => {
+test('serves sandbox reads and confirmed Sepolia USDT transfers without per-payment elicitation', async () => {
   const seed = new Uint8Array(64).fill(9)
   const events = []
   const confirmations = []
+  const session = createSessionReceipt({
+    budgetBaseUnits: 100000n, command: 'opencode', commandArgs: []
+  })
   const service = await createSandboxMcpService(seed, config, '0xephemeral', {
-    WalletManager: fakeWallet(events, seed)
+    WalletManager: fakeWallet(events, seed),
+    session
   })
   const launch = service.configureLaunch('opencode', ['run'], {
     OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: 'test/model' })
@@ -153,7 +160,7 @@ test('serves the existing reads and confirmed Sepolia USDT transfer for the same
   })
   client.setRequestHandler(ElicitRequestSchema, async (request) => {
     confirmations.push(request.params)
-    return { action: 'accept', content: { confirmed: true } }
+    throw new Error('Ration must not elicit per-payment confirmation')
   })
 
   try {
@@ -209,9 +216,22 @@ test('serves the existing reads and confirmed Sepolia USDT transfer for the same
       '0xpayment',
       { target: 'confirmed', timeout: 180000, interval: 1000 }
     ]])
-    assert.equal(confirmations.length, 1)
-    assert.match(confirmations[0].message, /Amount: 0\.05 USDT \(50000 base units\)/)
-    assert.match(confirmations[0].message, /Estimated Fee: 42000/)
+    assert.equal(confirmations.length, 0)
+    assert.deepEqual(session.receipt.activity.map((activity) => ({
+      type: activity.type,
+      amountBaseUnits: activity.amountBaseUnits,
+      recipientAddress: activity.recipientAddress,
+      transactionHash: activity.transactionHash,
+      feeWei: activity.feeWei,
+      status: activity.status
+    })), [{
+      type: 'direct_usdt_transfer',
+      amountBaseUnits: '50000',
+      recipientAddress: '0xRecipient',
+      transactionHash: '0xpayment',
+      feeWei: '41000',
+      status: 'confirmed'
+    }])
     assert.equal(inline.model, 'test/model')
     assert.equal(inline.mcp.ration.type, 'local')
     assert.doesNotMatch(launch.env.OPENCODE_CONFIG_CONTENT, /rationtreasury/)
@@ -225,9 +245,60 @@ test('serves the existing reads and confirmed Sepolia USDT transfer for the same
   assert.equal(seed.every((byte) => byte === 9), true)
 })
 
-test('does not broadcast a USDT transfer when Toolkit confirmation is declined', async () => {
+test('records direct transfer intent when the provider loses the submission result', async () => {
+  const seed = new Uint8Array(64).fill(5)
+  const events = []
+  const session = createSessionReceipt({
+    budgetBaseUnits: 100000n, command: 'opencode', commandArgs: []
+  })
+  const service = await createSandboxMcpService(seed, config, '0xephemeral', {
+    WalletManager: fakeWallet(events, seed, '0xEphemeral', {
+      transfer: async (options) => {
+        events.push(['transfer', options])
+        throw new Error('provider response lost')
+      }
+    }),
+    session
+  })
+  const launch = service.configureLaunch('opencode', [], {})
+  const command = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT).mcp.ration.command
+  const transport = new StdioClientTransport({
+    command: command[0],
+    args: command.slice(1),
+    stderr: 'pipe'
+  })
+  const client = new Client({ name: 'ration-test', version: '1.0.0' })
+
+  try {
+    await client.connect(transport)
+    const result = await client.callTool({
+      name: 'transfer',
+      arguments: { chain: 'sepolia', token: 'USDT', to: '0xRecipient', amount: '0.05' }
+    })
+    assert.equal(result.isError, true)
+    assert.deepEqual(session.receipt.activity.map((activity) => ({
+      type: activity.type,
+      amountBaseUnits: activity.amountBaseUnits,
+      recipientAddress: activity.recipientAddress,
+      transactionHash: activity.transactionHash,
+      status: activity.status
+    })), [{
+      type: 'direct_usdt_transfer',
+      amountBaseUnits: '50000',
+      recipientAddress: '0xRecipient',
+      transactionHash: null,
+      status: 'submission_unknown'
+    }])
+  } finally {
+    await client.close()
+    await service.close()
+  }
+})
+
+test('allows consecutive direct transfers without elicitation and leaves overspending to the wallet', async () => {
   const seed = new Uint8Array(64).fill(8)
   const events = []
+  const confirmations = []
   const service = await createSandboxMcpService(seed, config, '0xephemeral', {
     WalletManager: fakeWallet(events, seed)
   })
@@ -241,21 +312,95 @@ test('does not broadcast a USDT transfer when Toolkit confirmation is declined',
   const client = new Client({ name: 'ration-test', version: '1.0.0' }, {
     capabilities: { elicitation: {} }
   })
-  client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'decline' }))
+  client.setRequestHandler(ElicitRequestSchema, async (request) => {
+    confirmations.push(request.params)
+    throw new Error('Ration must not elicit per-payment confirmation')
+  })
 
   try {
     await client.connect(transport)
-    const result = await client.callTool({
+    const first = await client.callTool({
       name: 'transfer',
-      arguments: { chain: 'sepolia', token: 'USDT', to: '0xRecipient', amount: '0.05' }
+      arguments: { chain: 'sepolia', token: 'USDT', to: '0xFirst', amount: '0.04' }
+    })
+    const second = await client.callTool({
+      name: 'transfer',
+      arguments: { chain: 'sepolia', token: 'USDT', to: '0xSecond', amount: '0.06' }
+    })
+    const overBalance = await client.callTool({
+      name: 'transfer',
+      arguments: { chain: 'sepolia', token: 'USDT', to: '0xThird', amount: '0.01' }
     })
 
-    assert.equal(result.isError, true)
-    assert.equal(events.filter((event) => event[0] === 'quote-transfer').length, 1)
-    assert.equal(events.some((event) => event[0] === 'transfer'), false)
-    assert.equal(events.some((event) => event[0] === 'confirmed'), false)
+    assert.deepEqual(first.structuredContent, { hash: '0xpayment', fee: '41000' })
+    assert.deepEqual(second.structuredContent, { hash: '0xpayment2', fee: '41000' })
+    assert.equal(overBalance.isError, true)
+    assert.match(overBalance.content[0].text, /insufficient wallet balance/)
+    assert.equal(confirmations.length, 0)
+    assert.equal(events.filter((event) => event[0] === 'quote-transfer').length, 3)
+    assert.deepEqual(events.filter((event) => event[0] === 'transfer'), [
+      ['transfer', { token: USDT_ADDRESS, recipient: '0xFirst', amount: 40000n }],
+      ['transfer', { token: USDT_ADDRESS, recipient: '0xSecond', amount: 60000n }],
+      ['transfer', { token: USDT_ADDRESS, recipient: '0xThird', amount: 10000n }]
+    ])
+    assert.equal(events.filter((event) => event[0] === 'confirmed').length, 2)
   } finally {
     await client.close()
+    await service.close()
+  }
+})
+
+test('closing waits for an autonomous transfer and blocks another broadcast', async () => {
+  const seed = new Uint8Array(64).fill(5)
+  const events = []
+  let releaseConfirmation
+  let confirmationStarted
+  const started = new Promise((resolve) => { confirmationStarted = resolve })
+  const confirmation = new Promise((resolve) => { releaseConfirmation = resolve })
+  const service = await createSandboxMcpService(seed, config, '0xephemeral', {
+    WalletManager: fakeWallet(events, seed, '0xEphemeral', {
+      waitForTransaction: async (hash, options) => {
+        events.push(['confirmed', hash, options])
+        confirmationStarted()
+        await confirmation
+        return { finality: 'confirmed', success: true }
+      }
+    })
+  })
+  const launch = service.configureLaunch('opencode', [], {})
+  const command = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT).mcp.ration.command
+  const transport = new StdioClientTransport({
+    command: command[0],
+    args: command.slice(1),
+    stderr: 'pipe'
+  })
+  const client = new Client({ name: 'ration-test', version: '1.0.0' })
+
+  try {
+    await client.connect(transport)
+    const firstPayment = client.callTool({
+      name: 'transfer',
+      arguments: { chain: 'sepolia', token: 'USDT', to: '0xFirst', amount: '0.04' }
+    }).catch(() => {})
+    await started
+    const closing = service.close()
+    const rejectedPayment = await client.callTool({
+      name: 'transfer',
+      arguments: { chain: 'sepolia', token: 'USDT', to: '0xSecond', amount: '0.01' }
+    })
+
+    assert.equal(rejectedPayment.isError, true)
+    assert.match(rejectedPayment.content[0].text, /session is closing/)
+    assert.equal(events.filter((event) => event[0] === 'transfer').length, 1)
+    assert.equal(events.some((event) => event[0] === 'manager-disposed'), false)
+
+    releaseConfirmation()
+    await firstPayment
+    await closing
+    assert.equal(events.at(-1)[0], 'manager-disposed')
+  } finally {
+    releaseConfirmation()
+    await client.close().catch(() => {})
     await service.close()
   }
 })
@@ -263,6 +408,9 @@ test('does not broadcast a USDT transfer when Toolkit confirmation is declined',
 test('catalog discovery and consecutive purchases need no manual payment details or elicitation', async () => {
   const seed = new Uint8Array(64).fill(7)
   const events = []
+  const session = createSessionReceipt({
+    budgetBaseUnits: 100000n, command: 'opencode', commandArgs: []
+  })
   const responses = [
     jsonResponse(200, demoCatalog()),
     jsonResponse(200, demoCatalog()),
@@ -278,7 +426,8 @@ test('catalog discovery and consecutive purchases need no manual payment details
   const service = await createSandboxMcpService(seed, config, '0xephemeral', {
     WalletManager: fakeWallet(events, seed),
     resolveDemoOrigin: () => DEMO_ORIGIN,
-    fetchImpl: async () => responses.shift()
+    fetchImpl: async () => responses.shift(),
+    session
   })
   const launch = service.configureLaunch('opencode', [], {})
   const command = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT).mcp.ration.command
@@ -349,6 +498,18 @@ test('catalog discovery and consecutive purchases need no manual payment details
       ['confirmed', '0xpayment', { target: 'confirmed', timeout: 180000, interval: 1000 }],
       ['confirmed', '0xpayment2', { target: 'confirmed', timeout: 180000, interval: 1000 }],
       ['confirmed', '0xpayment3', { target: 'confirmed', timeout: 180000, interval: 1000 }]
+    ])
+    assert.deepEqual(session.receipt.activity.map((activity) => [
+      activity.type,
+      activity.resource,
+      activity.recipientAddress,
+      activity.amountBaseUnits,
+      activity.transactionHash,
+      activity.status
+    ]), [
+      ['resource_purchase', 'deep-research', DEMO_SELLER, '60000', '0xpayment', 'confirmed'],
+      ['resource_purchase', 'market-snapshot', DEMO_SELLER, '10000', '0xpayment2', 'confirmed'],
+      ['resource_purchase', 'company-intel', DEMO_SELLER, '30000', '0xpayment3', 'confirmed']
     ])
   } finally {
     await client.close()

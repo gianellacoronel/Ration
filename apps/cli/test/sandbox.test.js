@@ -166,6 +166,103 @@ test('fails rather than abandoning ETH that remains economical after retry limit
   sandbox.dispose()
 })
 
+test('retains a confirmed USDT return when the final balance read fails', async () => {
+  let reads = 0
+  const account = {
+    getAddress: async () => '0xephemeral',
+    getTokenBalance: async () => {
+      if (++reads === 1) return 100000n
+      throw new Error('rpc unavailable')
+    },
+    getBalance: async () => 100000n,
+    quoteTransfer: async () => ({ fee: 50000n }),
+    transfer: async () => ({ hash: '0xusdt', fee: 49000n }),
+    waitForTransaction: async () => ({ finality: 'confirmed', success: true }),
+    dispose: () => {}
+  }
+  class FakeWalletManager {
+    async getAccount () { return account }
+    dispose () {}
+  }
+  const sandbox = await createEphemeralSandbox(config, {
+    WalletManager: FakeWalletManager,
+    randomBytes: () => new Uint8Array(64)
+  })
+
+  assert.deepEqual(await sandbox.sweepUsdt('0xtreasury'), {
+    amount: 100000n,
+    fee: 49000n,
+    hash: '0xusdt',
+    transactions: [{
+      hash: '0xusdt', amount: 100000n, fee: 49000n, status: 'confirmed'
+    }],
+    remaining: null
+  })
+  sandbox.dispose()
+})
+
+test('retains USDT return intent when submission outcome is unknown', async () => {
+  const account = {
+    getAddress: async () => '0xephemeral',
+    getTokenBalance: async () => 100000n,
+    getBalance: async () => 100000n,
+    quoteTransfer: async () => ({ fee: 50000n }),
+    transfer: async () => { throw new Error('provider response lost') },
+    dispose: () => {}
+  }
+  class FakeWalletManager {
+    async getAccount () { return account }
+    dispose () {}
+  }
+  const sandbox = await createEphemeralSandbox(config, {
+    WalletManager: FakeWalletManager,
+    randomBytes: () => new Uint8Array(64)
+  })
+
+  await assert.rejects(sandbox.sweepUsdt('0xtreasury'), (error) => {
+    assert.deepEqual(error.partialSweep.transactions, [{
+      hash: null,
+      amount: 100000n,
+      fee: 50000n,
+      status: 'submission_unknown'
+    }])
+    return true
+  })
+  sandbox.dispose()
+})
+
+test('attaches confirmed ETH returns when a later sweep round fails', async () => {
+  let balanceReads = 0
+  const account = {
+    getAddress: async () => '0xephemeral',
+    getBalance: async () => {
+      if (++balanceReads === 1) return 100000n
+      throw new Error('rpc unavailable')
+    },
+    quoteSendTransaction: async () => ({ fee: 21000n }),
+    sendTransaction: async () => ({ hash: '0xeth', fee: 21000n }),
+    waitForTransaction: async () => ({ finality: 'confirmed', success: true }),
+    dispose: () => {}
+  }
+  class FakeWalletManager {
+    async getAccount () { return account }
+    dispose () {}
+  }
+  const sandbox = await createEphemeralSandbox(config, {
+    WalletManager: FakeWalletManager,
+    randomBytes: () => new Uint8Array(64)
+  })
+
+  await assert.rejects(sandbox.sweepEth('0xtreasury'), (error) => {
+    assert.equal(error.partialSweep.amount, 79000n)
+    assert.deepEqual(error.partialSweep.transactions, [
+      { hash: '0xeth', amount: 79000n, fee: 21000n, status: 'confirmed' }
+    ])
+    return true
+  })
+  sandbox.dispose()
+})
+
 test('funding waits poll independent USDT and ETH balances', async () => {
   const usdt = [0n, 1000000n]
   const eth = [0n, 90000n]

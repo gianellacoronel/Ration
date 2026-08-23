@@ -19,10 +19,10 @@ import {
   waitForSandboxGas
 } from '../sandbox.js'
 import {
-  createSessionLedger,
-  persistSessionLog,
-  renderSessionActivity,
-  summarizeSessionActivity
+  createSessionReceipt,
+  finalizeSessionReceipt,
+  persistSessionReceipt,
+  renderSessionSummary
 } from '../session.js'
 import {
   runWdkGetAddress,
@@ -93,7 +93,13 @@ export async function runCommand (args, options, output) {
   const transfer = options.runWdkTransfer ?? runWdkTransfer
   const confirm = options.confirmTransfer ?? (() => confirmTransfer({ signal: options.signal }))
   const execute = options.runRequestedCommand ?? runRequestedCommand
-  const ledger = (options.createSessionLedger ?? createSessionLedger)()
+  const session = (options.createSessionReceipt ?? createSessionReceipt)({
+    budgetBaseUnits: input.budget,
+    command: input.command,
+    commandArgs: input.commandArgs
+  }, options)
+  const receipt = session.receipt
+  const persistReceipt = options.persistSessionReceipt ?? persistSessionReceipt
   let sandbox
   let treasuryAddress
   let initialUsdt
@@ -107,15 +113,16 @@ export async function runCommand (args, options, output) {
   let gasConfirmed
   let budgetSubmitted = false
   let fundingAsset = 'USDT'
-  let sandboxDisposed = false
   let mcp
 
   try {
     sandbox = await createSandbox(standard.walletConfig)
+    receipt.sandboxAddress = sandbox.address
     const treasury = wallets.find((wallet) => wallet.name === TREASURY_NAME)
     if (!treasury.unlocked) await unlock(TREASURY_NAME)
     treasuryOpen = true
     treasuryAddress = (await getAddress(TREASURY_NAME, NETWORK)).address
+    receipt.treasuryAddress = treasuryAddress
 
     const treasuryUsdt = balanceBaseUnits(await getTreasuryUsdt(TREASURY_NAME, NETWORK))
     const treasuryEth = nativeBalanceBaseUnits(await getTreasuryEth(TREASURY_NAME, NETWORK))
@@ -139,6 +146,7 @@ export async function runCommand (args, options, output) {
       lifecycleGas.nativeFee,
       MAX_DEMO_RESOURCE_PURCHASES
     )
+    receipt.initialGasReserveWei = gasReserve.toString()
     const gasInput = {
       sourceWallet: TREASURY_NAME,
       network: NETWORK,
@@ -178,24 +186,49 @@ export async function runCommand (args, options, output) {
         throwIfInterrupted(options.signal)
         fundingAsset = 'ETH'
         gasSubmitted = true
+        receipt.fundingTransactions.eth = {
+          amountWei: gasReserve.toString(),
+          recipientAddress: sandbox.address,
+          transactionHash: null,
+          status: 'submission_unknown',
+          submittedAt: session.now()
+        }
         output.log('  Submitting Sepolia ETH gas reserve...')
-        await transfer({ ...gasInput, dryRun: false })
+        const gasFunding = await transfer({ ...gasInput, dryRun: false })
+        receipt.fundingTransactions.eth.transactionHash = gasFunding.txHash ?? null
+        receipt.fundingTransactions.eth.status = 'broadcast'
         gasConfirmed = await withProgress(output, 'Waiting for gas confirmation on Sepolia',
           () => awaitGas(sandbox, gasReserve, { signal: options.signal }))
+        receipt.fundingTransactions.eth.status = 'confirmed_by_balance'
+        receipt.fundingTransactions.eth.confirmedAt = session.now()
         output.log('  Gas reserve confirmed.')
         throwIfInterrupted(options.signal)
 
         fundingAsset = 'USDT'
         budgetSubmitted = true
+        receipt.fundingTransactions.usdt = {
+          amountBaseUnits: input.budget.toString(),
+          recipientAddress: sandbox.address,
+          transactionHash: null,
+          status: 'submission_unknown',
+          submittedAt: session.now()
+        }
         output.log(`  Submitting ${formatUsdtBaseUnits(input.budget)} budget...`)
-        await transfer({ ...budgetInput, dryRun: false })
+        const budgetFunding = await transfer({ ...budgetInput, dryRun: false })
+        receipt.fundingTransactions.usdt.transactionHash = budgetFunding.txHash ?? null
+        receipt.fundingTransactions.usdt.status = 'broadcast'
         output.log('  Budget transaction submitted.')
         if (!(await lockWallets(new Set([TREASURY_NAME]), options, output))) {
+          receipt.treasuryIsolation.finalStatus = 'lock_failed'
           exitCode = 1
         } else {
           treasuryOpen = false
+          receipt.treasuryIsolation.lockedBeforeChild = true
+          receipt.treasuryIsolation.finalStatus = 'locked'
           initialUsdt = await withProgress(output, 'Waiting for budget confirmation on Sepolia',
             () => awaitFunding(sandbox, input.budget, { signal: options.signal }))
+          receipt.fundingTransactions.usdt.status = 'confirmed_by_balance'
+          receipt.fundingTransactions.usdt.confirmedAt = session.now()
           output.log('  Budget confirmed.')
           throwIfInterrupted(options.signal)
           output.log('Ration')
@@ -203,20 +236,25 @@ export async function runCommand (args, options, output) {
           output.log(`Sandbox   ${sandbox.address}`)
           output.log(`Budget    ${formatUsdtBaseUnits(initialUsdt)}`)
           output.log('Gas       Sepolia ETH infrastructure reserve')
-          ledger.record({ kind: 'budget', amountBaseUnits: initialUsdt.toString() })
-          mcp = await sandbox.openMcp({ ...(options.mcpOptions ?? {}), session: ledger })
+          mcp = await sandbox.openMcp({ ...(options.mcpOptions ?? {}), session })
+          receipt.cleanup.mcpStatus = 'open'
           output.log('Access    Ration MCP (catalog, purchase, balances, Sepolia USDT transfer)')
           output.log('')
           output.log(`Starting ${input.command}...`)
           commandAttempted = true
+          receipt.childCommand.status = 'running'
           const launch = mcp.configureLaunch(input.command, input.commandArgs)
           const result = await execute(launch.command, launch.args, { env: launch.env })
+          receipt.childCommand.exitCode = result.code ?? null
+          receipt.childCommand.signal = result.signal ?? null
+          receipt.childCommand.status = 'exited'
           exitCode = childExitCode(result)
         }
       }
     }
   } catch (error) {
     exitCode = operationExitCode(error)
+    if (receipt.childCommand.status === 'running') receipt.childCommand.status = 'launch_or_runtime_failed'
     if (error instanceof CommandLaunchError) output.error(error.message)
     else if (error instanceof WalletTransferError || error instanceof WdkCliUnavailableError) {
       transferFailureMessage(error, input.budgetText, fundingAsset, output)
@@ -233,8 +271,16 @@ export async function runCommand (args, options, output) {
 
     if (treasuryOpen) {
       try {
-        if (!(await lockWallets(new Set([TREASURY_NAME]), options, output))) exitCode = 1
+        if (!(await lockWallets(new Set([TREASURY_NAME]), options, output))) {
+          receipt.treasuryIsolation.finalStatus = 'lock_failed'
+          exitCode = 1
+        } else {
+          treasuryOpen = false
+          receipt.treasuryIsolation.finalStatus = 'locked'
+        }
       } catch {
+        receipt.treasuryIsolation.finalStatus = 'lock_failed'
+        session.recordCleanupError('treasury_lock', 'The treasury could not be locked.')
         output.error('Security cleanup failed: the treasury could not be locked.')
         exitCode = 1
       }
@@ -248,8 +294,11 @@ export async function runCommand (args, options, output) {
         } else {
           await mcp.close()
         }
+        receipt.cleanup.mcpStatus = 'closed'
         if (commandAttempted) output.log('  Agent access closed.')
       } catch {
+        receipt.cleanup.mcpStatus = 'close_failed'
+        session.recordCleanupError('mcp_close', 'The sandbox MCP server could not be closed.')
         output.error('Security cleanup failed: the sandbox MCP server could not be closed.')
         exitCode = 1
       }
@@ -258,7 +307,12 @@ export async function runCommand (args, options, output) {
     if (sandbox && gasSubmitted && gasConfirmed === undefined) {
       try {
         gasConfirmed = await awaitGas(sandbox, 1n)
+        if (receipt.fundingTransactions.eth) {
+          receipt.fundingTransactions.eth.status = 'located_during_cleanup'
+          receipt.fundingTransactions.eth.confirmedAt = session.now()
+        }
       } catch {
+        session.recordCleanupError('gas_recovery', 'Submitted sandbox gas could not be located.')
         output.error('Security cleanup failed: submitted sandbox gas could not be located for recovery.')
         exitCode = 1
       }
@@ -267,7 +321,12 @@ export async function runCommand (args, options, output) {
     if (sandbox && budgetSubmitted && initialUsdt === undefined) {
       try {
         initialUsdt = await awaitFunding(sandbox, input.budget)
+        if (receipt.fundingTransactions.usdt) {
+          receipt.fundingTransactions.usdt.status = 'located_during_cleanup'
+          receipt.fundingTransactions.usdt.confirmedAt = session.now()
+        }
       } catch {
+        session.recordCleanupError('budget_recovery', 'Submitted sandbox funding could not be located.')
         output.error('Security cleanup failed: submitted sandbox funding could not be located for sweeping.')
         exitCode = 1
       }
@@ -283,17 +342,51 @@ export async function runCommand (args, options, output) {
                 () => sandbox.sweepUsdt(treasuryAddress))
             : await sandbox.sweepUsdt(treasuryAddress)
           returnedUsdt = sweep.amount
-          ledger.record({ kind: 'returned', amountBaseUnits: returnedUsdt.toString() })
+          receipt.usdtReturnedToTreasuryBaseUnits = returnedUsdt.toString()
+          receipt.returnTransactions.usdt = {
+            amountBaseUnits: returnedUsdt.toString(),
+            recipientAddress: treasuryAddress,
+            transactionHash: sweep.hash ?? sweep.transactions?.[0]?.hash ?? null,
+            feeWei: sweep.fee?.toString() ?? null,
+            remainingBaseUnits: sweep.remaining?.toString() ?? null,
+            status: returnedUsdt > 0n && sweep.remaining === null
+              ? 'confirmed_return_balance_unavailable'
+              : returnedUsdt > 0n && (sweep.remaining ?? 0n) === 0n
+                  ? 'confirmed'
+                  : 'incomplete'
+          }
+          receipt.finalSandboxUsdtBalanceBaseUnits = sweep.remaining?.toString() ?? null
           if (returnedUsdt === 0n || (sweep.remaining ?? 0n) > 0n) {
             output.error(`The remaining ${formatUsdtBaseUnits(finalUsdt)} could not be swept to the treasury.`)
             exitCode = 1
           } else if (commandAttempted) {
             output.log('  Remaining USDT returned.')
           }
-        } else if (commandAttempted) {
-          output.log('  No USDT remained to return.')
+        } else {
+          receipt.returnTransactions.usdt = {
+            amountBaseUnits: '0',
+            recipientAddress: treasuryAddress,
+            transactionHash: null,
+            feeWei: '0',
+            remainingBaseUnits: '0',
+            status: 'not_needed'
+          }
+          receipt.finalSandboxUsdtBalanceBaseUnits = '0'
+          if (commandAttempted) output.log('  No USDT remained to return.')
         }
-      } catch {
+      } catch (error) {
+        const partial = error?.partialSweep
+        const transaction = partial?.transactions?.[0]
+        receipt.returnTransactions.usdt ??= {
+          amountBaseUnits: partial?.amount?.toString() ?? '0',
+          attemptedAmountBaseUnits: transaction?.amount?.toString() ?? finalUsdt?.toString() ?? null,
+          recipientAddress: treasuryAddress,
+          transactionHash: transaction?.hash ?? null,
+          feeWei: transaction?.fee?.toString() ?? null,
+          remainingBaseUnits: partial?.remaining?.toString() ?? null,
+          status: transaction?.status ?? 'failed'
+        }
+        session.recordCleanupError('usdt_return', 'The sandbox USDT remainder could not be returned.')
         output.error('Security cleanup failed: the sandbox USD₮ remainder could not be swept to the treasury.')
         exitCode = 1
       }
@@ -307,9 +400,33 @@ export async function runCommand (args, options, output) {
               () => sandbox.sweepEth(treasuryAddress))
           : await sandbox.sweepEth(treasuryAddress)
         returnedEth = sweep.amount
-        ledger.record({ kind: 'gasReturned', amountWei: returnedEth.toString() })
+        receipt.ethReturnedToTreasuryWei = returnedEth.toString()
+        receipt.returnTransactions.eth = (sweep.transactions ?? (sweep.hash
+          ? [{ hash: sweep.hash, amount: sweep.amount, fee: sweep.fee }]
+          : [])).map((transaction) => ({
+          amountWei: transaction.amount.toString(),
+          recipientAddress: treasuryAddress,
+          transactionHash: transaction.hash,
+          feeWei: transaction.fee.toString(),
+          status: transaction.status ?? 'confirmed'
+        }))
+        receipt.finalSandboxEthBalanceWei = sweep.remaining?.toString() ?? null
         if (commandAttempted) output.log('  Sepolia ETH recovery complete.')
-      } catch {
+      } catch (error) {
+        const partial = error?.partialSweep
+        if (partial) {
+          returnedEth = partial.amount
+          receipt.ethReturnedToTreasuryWei = returnedEth.toString()
+          receipt.returnTransactions.eth = partial.transactions.map((transaction) => ({
+            amountWei: transaction.amount.toString(),
+            recipientAddress: treasuryAddress,
+            transactionHash: transaction.hash,
+            feeWei: transaction.fee.toString(),
+            status: transaction.status ?? 'confirmed'
+          }))
+          receipt.finalSandboxEthBalanceWei = partial.remaining?.toString() ?? null
+        }
+        session.recordCleanupError('eth_return', 'Recoverable sandbox ETH could not be returned.')
         output.error('Security cleanup failed: recoverable sandbox ETH could not be returned to the treasury.')
         exitCode = 1
       }
@@ -318,53 +435,36 @@ export async function runCommand (args, options, output) {
     if (sandbox) {
       try {
         sandbox.dispose()
-        sandboxDisposed = true
-        ledger.record({ kind: 'disposed' })
+        receipt.sandboxDisposalStatus = 'disposed'
         if (commandAttempted) output.log('  Sandbox disposed.')
       } catch {
-        ledger.record({ kind: 'disposalFailed' })
+        receipt.sandboxDisposalStatus = 'failed'
+        session.recordCleanupError('sandbox_disposal', 'The ephemeral WDK sandbox could not be disposed.')
         output.error('Security cleanup failed: the ephemeral WDK sandbox could not be disposed.')
         exitCode = 1
       }
     }
 
+    if (!sandbox && receipt.sandboxDisposalStatus === 'pending') {
+      receipt.sandboxDisposalStatus = 'not_created'
+    }
+    const finalizedReceipt = finalizeSessionReceipt(session, {
+      initialUsdtBalance: initialUsdt,
+      finalUsdtBalance: finalUsdt,
+      exitCode: options.signal?.aborted
+        ? operationExitCode({ signal: options.signal.reason })
+        : exitCode
+    })
     if (commandAttempted) {
-      const summary = summarizeSessionActivity(ledger.events)
       output.log('')
-      output.log('Session activity')
-      for (const line of renderSessionActivity(summary)) output.log(line)
-      try {
-        const logPath = await persistSessionLog({
-          command: [input.command, ...input.commandArgs],
-          budgetText: input.budgetText,
-          sandboxAddress: sandbox?.address ?? null,
-          events: [...ledger.events],
-          outcome: {
-            followedInjection: summary.unsolicitedTransfers.length > 0,
-            unsolicitedBaseUnits: summary.unsolicitedTotal.toString(),
-            purchasedBaseUnits: summary.purchasedTotal.toString(),
-            returnedUsdtBaseUnits: summary.returnedUsdt.toString(),
-            returnedEthWei: summary.returnedEth.toString(),
-            disposed: summary.disposed
-          }
-        }, options)
-        output.log(`Activity log ${logPath}`)
-      } catch {
-        output.error('The session activity log could not be persisted.')
-      }
-      output.log('')
-      output.log('Session complete')
-      output.log('')
-      if (finalUsdt === undefined) {
-        output.log('Spent      unavailable')
-        output.log('Returned   unavailable')
-      } else {
-        const spent = initialUsdt >= finalUsdt ? initialUsdt - finalUsdt : 0n
-        output.log(`Spent      ${formatUsdtBaseUnits(spent)}`)
-        output.log(`Returned   ${formatUsdtBaseUnits(returnedUsdt)}`)
-      }
-      if (returnedEth > 0n) output.log(`Gas back   ${formatEthBaseUnits(returnedEth)}`)
-      output.log(`Sandbox    ${sandboxDisposed ? 'disposed' : 'disposal failed'}`)
+      for (const line of renderSessionSummary(finalizedReceipt)) output.log(line)
+    }
+    try {
+      await persistReceipt(finalizedReceipt, options)
+      if (commandAttempted) output.log(`Receipt     ${finalizedReceipt.sessionId}`)
+    } catch {
+      output.error('The structured session receipt could not be persisted.')
+      exitCode = 1
     }
   }
 

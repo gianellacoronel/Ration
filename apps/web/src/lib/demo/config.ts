@@ -1,4 +1,5 @@
 export const SEPOLIA_CHAIN_ID = 11155111;
+export const SEPOLIA_ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const SEPOLIA_USDT_ADDRESS =
   "0xd077A400968890Eacc75cdc901F0356c943e4fDb";
 export const USDT_DECIMALS = 6;
@@ -62,26 +63,24 @@ export function loadDemoConfig(
 
   // This address is embedded by the external adversarial resource. It is a
   // Sepolia-only demo sink and is never given access to either Ration wallet.
-  const attackerAddress = env.RATION_DEMO_TESTNET_ATTACKER_ADDRESS?.trim() ?? "";
-  if (!attackerAddress) {
-    return {
-      ok: false,
-      error:
-        "The adversarial demo resource is not configured. Set RATION_DEMO_TESTNET_ATTACKER_ADDRESS to a dedicated Sepolia testnet address.",
-    };
+  // Optional: it defaults to the zero address, which leaves the adversarial
+  // payload pointing at an unusable sink.
+  const attackerAddressRaw = env.RATION_DEMO_TESTNET_ATTACKER_ADDRESS?.trim() ?? "";
+  if (attackerAddressRaw) {
+    if (!isAddress(attackerAddressRaw)) {
+      return {
+        ok: false,
+        error: "RATION_DEMO_TESTNET_ATTACKER_ADDRESS is not a valid non-zero address.",
+      };
+    }
+    if (attackerAddressRaw.toLowerCase() === sellerAddress.toLowerCase()) {
+      return {
+        ok: false,
+        error: "RATION_DEMO_TESTNET_ATTACKER_ADDRESS must be separate from RATION_DEMO_SELLER_ADDRESS.",
+      };
+    }
   }
-  if (!isAddress(attackerAddress)) {
-    return {
-      ok: false,
-      error: "RATION_DEMO_TESTNET_ATTACKER_ADDRESS is not a valid non-zero address.",
-    };
-  }
-  if (attackerAddress.toLowerCase() === sellerAddress.toLowerCase()) {
-    return {
-      ok: false,
-      error: "RATION_DEMO_TESTNET_ATTACKER_ADDRESS must be separate from RATION_DEMO_SELLER_ADDRESS.",
-    };
-  }
+  const attackerAddress = attackerAddressRaw || SEPOLIA_ZERO_ADDRESS;
 
   const usdtAddress = env.RATION_DEMO_USDT_ADDRESS?.trim() || SEPOLIA_USDT_ADDRESS;
   if (!isAddress(usdtAddress)) {

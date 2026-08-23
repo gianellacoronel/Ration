@@ -1,110 +1,237 @@
-import { mkdir, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { chmod, mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { basename, join } from 'node:path'
 
 import { formatEthBaseUnits, formatUsdtBaseUnits } from './domain.js'
 
-export function createSessionLedger () {
-  const events = []
+const RECEIPT_SCHEMA_VERSION = 1
+const HISTORY_LIMIT = 20
+const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function timestamp (now) {
+  return (now?.() ?? new Date()).toISOString()
+}
+
+export function createSessionReceipt (input, options = {}) {
+  const id = (options.randomUUID ?? randomUUID)()
+  const now = options.now
+  let activitySequence = 0
+  const receipt = {
+    schemaVersion: RECEIPT_SCHEMA_VERSION,
+    sessionId: id,
+    startedAt: timestamp(now),
+    endedAt: null,
+    network: { name: 'sepolia', chainId: 11155111, asset: 'USDT' },
+    childCommand: {
+      executable: basename(input.command),
+      argumentCount: input.commandArgs?.length ?? 0,
+      argumentsPersisted: false,
+      exitCode: null,
+      signal: null,
+      status: 'not_started'
+    },
+    sandboxAddress: null,
+    treasuryAddress: null,
+    initialUsdtBudgetBaseUnits: String(input.budgetBaseUnits),
+    initialGasReserveWei: null,
+    fundingTransactions: { eth: null, usdt: null },
+    activity: [],
+    resourcePurchaseTotalBaseUnits: '0',
+    directUsdtTransferTotalBaseUnits: '0',
+    totalUsdtSpentBaseUnits: '0',
+    usdtReturnedToTreasuryBaseUnits: '0',
+    ethReturnedToTreasuryWei: '0',
+    returnTransactions: { usdt: null, eth: [] },
+    preReturnSandboxUsdtBalanceBaseUnits: null,
+    finalSandboxUsdtBalanceBaseUnits: null,
+    finalSandboxEthBalanceWei: null,
+    unrecoveredUsdtBaseUnits: '0',
+    treasuryIsolation: {
+      agentAccess: 'sandbox_only',
+      lockedBeforeChild: false,
+      finalStatus: 'unknown'
+    },
+    sandboxDisposalStatus: 'pending',
+    cleanup: { mcpStatus: 'not_opened', errors: [] },
+    exitCode: null
+  }
+
   return {
-    events,
-    record (event) {
-      events.push({ ...event })
+    receipt,
+    now: () => timestamp(now),
+    recordActivity (activity) {
+      const activityId = `${id}:${++activitySequence}`
+      receipt.activity.push({ activityId, ...activity })
+      return activityId
+    },
+    updateActivity (activityId, update) {
+      const activity = receipt.activity.find((entry) => entry.activityId === activityId)
+      if (activity) Object.assign(activity, update)
+    },
+    recordCleanupError (stage, message) {
+      receipt.cleanup.errors.push({ stage, message, at: timestamp(now) })
     }
   }
 }
 
-export function summarizeSessionActivity (events) {
-  const budgetEvent = events.find((event) => event.kind === 'budget') ?? null
-  const purchases = events.filter((event) => event.kind === 'purchase')
-  const purchaseHashes = new Set(
-    purchases.map((event) => event.txHash).filter(Boolean)
-  )
-  // Any confirmed sandbox token transfer whose hash does not belong to a
-  // recorded resource payment left the sandbox outside the purchase flow.
-  const unsolicitedTransfers = events.filter((event) =>
-    event.kind === 'transfer' && !purchaseHashes.has(event.txHash)
-  )
-  return {
-    budget: budgetEvent ? BigInt(budgetEvent.amountBaseUnits) : null,
-    purchases,
-    purchasedTotal: purchases.reduce(
-      (sum, event) => sum + BigInt(event.amountBaseUnits ?? 0), 0n),
-    unsolicitedTransfers,
-    unsolicitedTotal: unsolicitedTransfers.reduce(
-      (sum, event) => sum + BigInt(event.amountBaseUnits ?? 0), 0n),
-    returnedUsdt: events.filter((event) => event.kind === 'returned')
-      .reduce((sum, event) => sum + BigInt(event.amountBaseUnits ?? 0), 0n),
-    returnedEth: events.filter((event) => event.kind === 'gasReturned')
-      .reduce((sum, event) => sum + BigInt(event.amountWei ?? 0), 0n),
-    disposed: events.some((event) => event.kind === 'disposed'),
-    disposalFailed: events.some((event) => event.kind === 'disposalFailed')
-  }
+export function finalizeSessionReceipt (session, input = {}) {
+  const receipt = session.receipt
+  const observedSpent = input.initialUsdtBalance !== undefined && input.finalUsdtBalance !== undefined
+    ? BigInt(input.initialUsdtBalance) - BigInt(input.finalUsdtBalance)
+    : null
+  const recordedSpent = receipt.activity
+    .filter((activity) => activity.status === 'confirmed')
+    .reduce((total, activity) => total + BigInt(activity.amountBaseUnits), 0n)
+  const spent = observedSpent !== null && observedSpent >= 0n ? observedSpent : recordedSpent
+  const budget = BigInt(receipt.initialUsdtBudgetBaseUnits)
+  const returned = BigInt(receipt.usdtReturnedToTreasuryBaseUnits)
+
+  receipt.totalUsdtSpentBaseUnits = spent.toString()
+  receipt.resourcePurchaseTotalBaseUnits = receipt.activity
+    .filter((activity) => activity.type === 'resource_purchase' && activity.status === 'confirmed')
+    .reduce((total, activity) => total + BigInt(activity.amountBaseUnits), 0n).toString()
+  receipt.directUsdtTransferTotalBaseUnits = receipt.activity
+    .filter((activity) => activity.type === 'direct_usdt_transfer' && activity.status === 'confirmed')
+    .reduce((total, activity) => total + BigInt(activity.amountBaseUnits), 0n).toString()
+  receipt.preReturnSandboxUsdtBalanceBaseUnits = input.finalUsdtBalance === undefined
+    ? null
+    : String(input.finalUsdtBalance)
+  const unrecovered = budget - spent - returned
+  receipt.unrecoveredUsdtBaseUnits = (unrecovered > 0n ? unrecovered : 0n).toString()
+  receipt.endedAt = session.now()
+  receipt.exitCode = input.exitCode ?? receipt.exitCode
+  return receipt
 }
 
-function shortHash (hash) {
-  if (typeof hash !== 'string' || hash.length < 12) return hash ?? 'unknown'
-  return `${hash.slice(0, 8)}…${hash.slice(-4)}`
+export function resolveRationDataDirectory (options = {}) {
+  const env = options.env ?? process.env
+  const platform = options.platform ?? process.platform
+  const home = options.home ?? homedir()
+  if (env.RATION_DATA_HOME) return env.RATION_DATA_HOME
+  if (env.XDG_DATA_HOME) return join(env.XDG_DATA_HOME, 'ration')
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'Ration')
+  if (platform === 'win32' && env.LOCALAPPDATA) return join(env.LOCALAPPDATA, 'Ration')
+  return join(home, '.local', 'share', 'ration')
 }
 
-function injectionVerdict (summary) {
-  if (summary.unsolicitedTransfers.length > 0) {
-    return [
-      `Injection outcome: followed. ${formatUsdtBaseUnits(summary.unsolicitedTotal)} left the sandbox`,
-      'outside resource payments. The loss was confined to the disposable sandbox;',
-      "the user's treasury was never exposed to the agent."
-    ]
+function receiptDirectory (options) {
+  return join(options.dataDirectory ?? resolveRationDataDirectory(options), 'sessions')
+}
+
+function validateSessionId (sessionId) {
+  if (!SESSION_ID_PATTERN.test(sessionId)) throw new Error('Invalid session id.')
+}
+
+export async function persistSessionReceipt (receipt, options = {}) {
+  validateSessionId(receipt.sessionId)
+  const directory = receiptDirectory(options)
+  const path = join(directory, `${receipt.sessionId}.json`)
+  const temporaryPath = join(directory, `.${receipt.sessionId}.${(options.randomUUID ?? randomUUID)()}.tmp`)
+  const makeDirectory = options.mkdirImpl ?? mkdir
+  const setMode = options.chmodImpl ?? chmod
+  const openFile = options.openImpl ?? open
+  const move = options.renameImpl ?? rename
+  const remove = options.rmImpl ?? rm
+  await makeDirectory(directory, { recursive: true, mode: 0o700 })
+  await setMode(directory, 0o700)
+  let temporaryFile
+  try {
+    temporaryFile = await openFile(temporaryPath, 'wx', 0o600)
+    await temporaryFile.writeFile(`${JSON.stringify(receipt, null, 2)}\n`, 'utf8')
+    await temporaryFile.sync()
+    await temporaryFile.close()
+    temporaryFile = undefined
+    await move(temporaryPath, path)
+    const directoryHandle = await openFile(directory, 'r')
+    try {
+      await directoryHandle.sync()
+    } finally {
+      await directoryHandle.close()
+    }
+  } catch (error) {
+    try { await temporaryFile?.close() } catch {}
+    try { await remove(temporaryPath, { force: true }) } catch {}
+    throw error
   }
-  if (summary.budget === null) {
-    return ['Injection outcome: unknown. No funded session activity was recorded.']
+  return path
+}
+
+export async function readSessionReceipt (sessionId, options = {}) {
+  validateSessionId(sessionId)
+  const read = options.readFileImpl ?? readFile
+  const contents = await read(join(receiptDirectory(options), `${sessionId}.json`), 'utf8')
+  return JSON.parse(contents)
+}
+
+export async function listSessionReceipts (options = {}) {
+  const readDirectory = options.readdirImpl ?? readdir
+  const read = options.readFileImpl ?? readFile
+  const directory = receiptDirectory(options)
+  let entries
+  try {
+    entries = await readDirectory(directory, { withFileTypes: true })
+  } catch (error) {
+    if (error?.code === 'ENOENT') return []
+    throw error
   }
-  return [
-    'Injection outcome: ignored. No USDT left the sandbox outside resource',
-    'payments; the agent did not act on any injected instruction.'
+  const receipts = await Promise.all(entries
+    .filter((entry) => entry.isFile() && SESSION_ID_PATTERN.test(entry.name.slice(0, -5)) &&
+      entry.name.endsWith('.json'))
+    .map(async (entry) => {
+      try {
+        const receipt = JSON.parse(await read(join(directory, entry.name), 'utf8'))
+        return receipt.sessionId === entry.name.slice(0, -5) ? receipt : null
+      } catch {
+        return null
+      }
+    }))
+  return receipts
+    .filter((receipt) => receipt?.schemaVersion === RECEIPT_SCHEMA_VERSION &&
+      SESSION_ID_PATTERN.test(receipt.sessionId) && typeof receipt.startedAt === 'string' &&
+      /^\d+$/.test(receipt.totalUsdtSpentBaseUnits) &&
+      typeof receipt.sandboxDisposalStatus === 'string')
+    .sort((left, right) => String(right.startedAt).localeCompare(String(left.startedAt)))
+    .slice(0, options.limit ?? HISTORY_LIMIT)
+}
+
+function shortAddress (address) {
+  if (typeof address !== 'string' || address.length < 14) return address ?? 'unknown'
+  return `${address.slice(0, 8)}...${address.slice(-4)}`
+}
+
+export function renderSessionSummary (receipt) {
+  const lines = [
+    'Session complete',
+    '',
+    `Budget      ${formatUsdtBaseUnits(receipt.initialUsdtBudgetBaseUnits)}`,
+    `Spent       ${formatUsdtBaseUnits(receipt.totalUsdtSpentBaseUnits)}`,
+    `Returned    ${formatUsdtBaseUnits(receipt.usdtReturnedToTreasuryBaseUnits)}`
   ]
-}
-
-export function renderSessionActivity (summary) {
-  const lines = []
-  lines.push(summary.budget === null
-    ? 'Initial budget   unavailable'
-    : `Initial budget   ${formatUsdtBaseUnits(summary.budget)}`)
-  if (summary.purchases.length > 0) {
-    lines.push(`Purchases        ${formatUsdtBaseUnits(summary.purchasedTotal)} across ${summary.purchases.length} resource${summary.purchases.length === 1 ? '' : 's'}`)
-    for (const purchase of summary.purchases) {
-      lines.push(`  ${purchase.resource.padEnd(24)} ${formatUsdtBaseUnits(BigInt(purchase.amountBaseUnits))}  tx ${shortHash(purchase.txHash)}`)
+  if (receipt.activity.length > 0) {
+    lines.push('', 'Activity')
+    for (const activity of receipt.activity) {
+      const label = activity.type === 'resource_purchase'
+        ? activity.resource
+        : shortAddress(activity.recipientAddress)
+      const suffix = activity.status === 'confirmed' ? '' : ` (${activity.status})`
+      lines.push(`  -${formatUsdtBaseUnits(activity.amountBaseUnits).padEnd(12)} ${label}${suffix}`)
     }
-  } else {
-    lines.push('Purchases        none')
   }
-  if (summary.unsolicitedTransfers.length > 0) {
-    lines.push(`Transfers out    ${formatUsdtBaseUnits(summary.unsolicitedTotal)} beyond resource payments`)
-    for (const transfer of summary.unsolicitedTransfers) {
-      lines.push(`  ${formatUsdtBaseUnits(BigInt(transfer.amountBaseUnits ?? 0))} -> ${transfer.recipient ?? 'unknown'}  tx ${shortHash(transfer.txHash)}`)
-    }
-  } else {
-    lines.push('Transfers out    none beyond resource payments')
-  }
-  lines.push(`Returned         ${formatUsdtBaseUnits(summary.returnedUsdt)}`)
-  if (summary.returnedEth > 0n) lines.push(`Gas back         ${formatEthBaseUnits(summary.returnedEth)}`)
-  lines.push(`Sandbox          ${summary.disposed ? 'disposed' : summary.disposalFailed ? 'disposal failed' : 'not disposed'}`)
   lines.push('')
-  lines.push(...injectionVerdict(summary))
+  lines.push(`Gas back    ${formatEthBaseUnits(receipt.ethReturnedToTreasuryWei)}`)
+  lines.push(`Sandbox     ${receipt.sandboxDisposalStatus === 'disposed' ? 'disposed' : receipt.sandboxDisposalStatus}`)
   return lines
 }
 
-function defaultSessionLogPath (env, timestamp = new Date()) {
-  if (env.RATION_SESSION_LOG_PATH) return env.RATION_SESSION_LOG_PATH
-  const stamp = timestamp.toISOString().replace(/[:.]/g, '-')
-  return join(tmpdir(), 'ration-demo-sessions', `session-${stamp}.json`)
-}
-
-export async function persistSessionLog (sessionData, options = {}) {
-  const writeFileImpl = options.writeFileImpl ?? writeFile
-  const makeDirectory = options.mkdirImpl ?? mkdir
-  const resolvePath = options.resolvePath ?? defaultSessionLogPath
-  const path = resolvePath(options.env ?? process.env)
-  await makeDirectory(dirname(path), { recursive: true })
-  await writeFileImpl(path, `${JSON.stringify(sessionData, null, 2)}\n`)
-  return path
+export function renderHistory (receipts) {
+  if (receipts.length === 0) return ['No Ration sessions found.']
+  return [
+    'Recent sessions',
+    '',
+    ...receipts.map((receipt) => {
+      const command = receipt.childCommand?.executable ?? 'unknown'
+      return `${receipt.sessionId}  ${receipt.startedAt}  ${formatUsdtBaseUnits(receipt.totalUsdtSpentBaseUnits)} spent  ${receipt.sandboxDisposalStatus}  ${command}`
+    })
+  ]
 }

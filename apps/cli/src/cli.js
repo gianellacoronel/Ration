@@ -7,6 +7,7 @@ export {
   createWdkOutputFilter,
   resolveWdkCliPath,
   runWdkGetAddress,
+  runWdkGetEthBalance,
   runWdkGetNetworkConfig,
   runWdkGetUsdtBalance,
   runWdkTransfer,

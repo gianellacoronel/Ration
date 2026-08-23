@@ -37,11 +37,11 @@ export const cliCommands = [
     id: "setup",
     label: "Setup",
     command: commands.setup,
-    output: `Persistent treasury ready
+    output: `Treasury ready
 
-Owner:  human
-Store:  encrypted WDK CLI wallet
-Agent:  no access`,
+Account: standard Sepolia EOA
+Store:   encrypted WDK CLI wallet
+Fund:    test USDT + Sepolia ETH`,
   },
   {
     id: "status",
@@ -56,17 +56,16 @@ Status:  locked`,
     id: "run",
     label: "Run",
     command: commands.run(commandVariables.budget, commandVariables.process),
-    output: `Budget       ${terminalDemo.balance}
-Network fee  ${terminalDemo.fee}
-Total        ${terminalDemo.total}
+    output: `Budget        ${terminalDemo.balance}
+Gas reserve   ${terminalDemo.gasReserve} (infrastructure)
 
-Ephemeral sandbox created
+Ephemeral EOA created
 Wallet access pending restricted MCP
 Process started
 
 ...
 
-Remainder swept
+USDT swept / ETH recovered
 Sandbox disposed`,
   },
 ] as const;

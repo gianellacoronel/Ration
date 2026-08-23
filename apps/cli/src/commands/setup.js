@@ -7,11 +7,11 @@ import {
   lockWallets,
   operationExitCode,
   printWalletError,
-  requirePaymasterTokenMode
+  requireStandardSepolia
 } from './shared.js'
 
 export async function setupCommand (options, output, { insecure = false } = {}) {
-  if (!(await requirePaymasterTokenMode(options, output))) return 1
+  if (!(await requireStandardSepolia(options, output))) return 1
   let wallets = await loadWallets(options, output)
   if (!wallets) return 1
 
@@ -64,9 +64,9 @@ export async function setupCommand (options, output, { insecure = false } = {}) 
   output.log('')
   output.log('Treasury ready')
   output.log(`  Address   ${address}`)
+  output.log('  Account   standard Sepolia EOA')
   output.log('  Status    locked')
-  output.log('  Gas       paid in USD₮')
   output.log('')
-  output.log('Fund this address with test USD₮ before running a session.')
+  output.log('Fund this same address with both test USD₮ and Sepolia ETH before running a session.')
   return 0
 }

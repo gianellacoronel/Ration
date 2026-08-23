@@ -1,6 +1,17 @@
 import { NETWORK, SETUP_REQUIRED, TREASURY_NAME } from '../config.js'
-import { balanceBaseUnits, formatUsdtBaseUnits, isTreasuryConfigured } from '../domain.js'
-import { runWdkGetAddress, runWdkGetUsdtBalance, runWdkWalletUnlock } from '../wdk.js'
+import {
+  balanceBaseUnits,
+  formatEthBaseUnits,
+  formatUsdtBaseUnits,
+  isTreasuryConfigured,
+  nativeBalanceBaseUnits
+} from '../domain.js'
+import {
+  runWdkGetAddress,
+  runWdkGetEthBalance,
+  runWdkGetUsdtBalance,
+  runWdkWalletUnlock
+} from '../wdk.js'
 import {
   loadWallets,
   lockWallets,
@@ -24,17 +35,20 @@ export async function statusCommand (args, options, output) {
 
   const unlock = options.runWdkWalletUnlock ?? runWdkWalletUnlock
   const getAddress = options.runWdkGetAddress ?? runWdkGetAddress
-  const getBalance = options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance
+  const getUsdtBalance = options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance
+  const getEthBalance = options.runWdkGetEthBalance ?? runWdkGetEthBalance
   const treasury = wallets.find((wallet) => wallet.name === TREASURY_NAME)
   let address
-  let balance
+  let usdtBalance
+  let ethBalance
   let exitCode = 0
 
   try {
     if (!treasury.unlocked) await unlock(TREASURY_NAME)
     throwIfInterrupted(options.signal)
     address = (await getAddress(TREASURY_NAME, NETWORK)).address
-    balance = balanceBaseUnits(await getBalance(TREASURY_NAME, NETWORK))
+    usdtBalance = balanceBaseUnits(await getUsdtBalance(TREASURY_NAME, NETWORK))
+    ethBalance = nativeBalanceBaseUnits(await getEthBalance(TREASURY_NAME, NETWORK))
   } catch (error) {
     exitCode = operationExitCode(error)
     printWalletError(error, output, 'Treasury')
@@ -46,7 +60,8 @@ export async function statusCommand (args, options, output) {
   output.log('Ration treasury')
   output.log('')
   output.log(`Address   ${address}`)
-  output.log(`Balance   ${formatUsdtBaseUnits(balance)}`)
+  output.log(`USDT      ${formatUsdtBaseUnits(usdtBalance)}`)
+  output.log(`Gas       ${formatEthBaseUnits(ethBalance)}`)
   output.log('Status    locked')
   return 0
 }

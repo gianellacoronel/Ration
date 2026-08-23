@@ -17,6 +17,6 @@
   },
   "dependencies": {
     "@tetherto/wdk-cli": "1.0.0-beta.3",
-    "@tetherto/wdk-wallet-evm-erc-4337": "1.0.0-beta.16"
+    "@tetherto/wdk-wallet-evm": "1.0.0-beta.17"
   }
 }

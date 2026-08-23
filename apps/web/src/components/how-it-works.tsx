@@ -1,10 +1,10 @@
-import { Coins, Eraser, Plus, Sparkles, Terminal, Wallet } from "lucide-react";
+import { Eraser, Plus, Terminal, Wallet } from "lucide-react";
 
 const steps = [
   { number: "01", title: "Create", description: "Derive one in-memory wallet for this run.", Icon: Plus },
-  { number: "02", title: "Fund", description: "Move the exact approved budget from treasury.", Icon: Wallet },
+  { number: "02", title: "Fund", description: "Provision gas, then move the exact USDT budget.", Icon: Wallet },
   { number: "03", title: "Run", description: "Restricted MCP wallet access is the next integration.", Icon: Terminal },
-  { number: "04", title: "Erase", description: "Sweep the remainder, then dispose every key.", Icon: Eraser },
+  { number: "04", title: "Erase", description: "Sweep USDT, recover ETH, then dispose every key.", Icon: Eraser },
 ];
 
 export function HowItWorks() {

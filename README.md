@@ -3,52 +3,33 @@
 Ration gives an AI command a disposable, budgeted financial sandbox while keeping the human treasury persistent and separate.
 
 ```text
-Persistent treasury (WDK CLI)
-        ↓ exact budget
-Ephemeral in-memory WDK ERC-4337 sandbox
+Persistent standard Sepolia EOA (WDK CLI)
+        ↓ small ETH gas reserve + exact USDT budget
+Ephemeral in-memory standard Sepolia EOA
         ↓
 Restricted WDK MCP (next integration)
         ↓
 Agent
-        ↓ sweep remainder
+        ↓ sweep USDT, then recover ETH
         ↓ dispose keys
 ```
 
 ## Wallet Model
 
-- **Treasury:** an official WDK CLI wallet named `rationtreasury`. It is persistent, encrypted, human-owned, and unlocked only for a specific treasury operation.
-- **Sandbox:** an official `@tetherto/wdk-wallet-evm-erc-4337` wallet created inside the `ration run` process. It is not registered with the WDK CLI, has no passphrase, and is never written to the WDK wallet catalog.
+- **Treasury:** the official WDK CLI wallet `rationtreasury`, used on the built-in standard `sepolia` network. It is a persistent EOA, encrypted at rest, human-owned, and unlocked only for a treasury operation.
+- **Sandbox:** a fresh official `@tetherto/wdk-wallet-evm` EOA created inside each `ration run` process. It has no WDK CLI registration, passphrase, persisted catalog entry, Smart Account, bundler, or paymaster.
 
-Ration generates 64 bytes of cryptographically random sandbox seed material in memory. It does not create or display a mnemonic. At session cleanup, Ration calls the documented WDK account and wallet `dispose()` methods, zeroes its mutable seed buffer, and drops its references.
+Ration generates 64 cryptographically random bytes of sandbox seed material in mutable memory. It does not create or display a mnemonic. Cleanup calls the documented WDK account and wallet `dispose()` methods, zeroes Ration's seed buffer, and drops its references.
 
 ## Requirements
 
 - Node.js 22.18.0 or newer
 - npm
-- WDK's public Candide Sepolia Paymaster Token configuration
+- The official WDK CLI `sepolia` network configured with a working Sepolia RPC
+- Test USDT at `0xd077A400968890Eacc75cdc901F0356c943e4fDb`
+- Sepolia ETH for infrastructure gas
 
-The repository includes an `.nvmrc` matching the Node.js version required by the WDK CLI.
-
-### USD₮ Gas Payments
-
-Ration uses WDK Paymaster Token mode. Candide supplies native gas and charges the sending wallet in test USD₮. Configure the WDK CLI `smart-account-sepolia` network with:
-
-```text
-chainId                 11155111
-provider                a working Sepolia JSON-RPC URL
-bundlerUrl              https://api.candide.dev/public/v3/11155111
-paymasterUrl            https://api.candide.dev/public/v3/11155111
-paymasterAddress        0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba
-safeModulesVersion      0.3.0
-paymasterToken.address  0xd077a400968890eacc75cdc901f0356c943e4fdb
-transferMaxFee          100000
-isSponsored             false (or omitted)
-useNativeCoins          false (or omitted)
-```
-
-Ration reads this configuration through the official CLI's structured output, validates it, and passes only the documented SDK fields to the ephemeral wallet constructor. The same configuration derives compatible ERC-4337 smart accounts for treasury funding and sandbox operation.
-
-Candide's public endpoint requires no API key but is rate-limited by source IP. Sepolia USD₮ is test-only and has no value.
+The repository includes an `.nvmrc` matching the Node.js version required by the WDK CLI. The WDK CLI already ships the standard `sepolia` network and both Sepolia asset definitions.
 
 ## Getting Started
 
@@ -57,13 +38,13 @@ npm install
 npm link
 
 ration setup
-# Fund the displayed treasury address with test USD₮.
+# Fund the one displayed EOA address with both test USDT and Sepolia ETH.
 
 ration status
-ration run --budget 1 -- claude
+ration run --budget 0.5 -- node -e "console.log('Hello from the sandbox')"
 ```
 
-`ration setup` creates or reuses the persistent WDK CLI treasury. WDK owns the interactive passphrase, encryption, backup, and storage flow. Ration never reads the treasury passphrase or seed.
+`ration setup` creates or reuses the persistent WDK CLI treasury and displays its standard Sepolia EOA address. Fund that same address with test USDT and Sepolia ETH. WDK owns the interactive passphrase, encryption, backup, and storage flow; Ration never reads the treasury passphrase or seed.
 
 For throwaway development environments only, `ration setup --insecure` creates the treasury with an empty passphrase.
 
@@ -75,53 +56,54 @@ ration run --budget <amount> -- <command> [args...]
 
 The normal session lifecycle is:
 
-1. Validate the WDK ERC-4337 Paymaster Token configuration.
-2. Create an in-memory ephemeral ERC-4337 sandbox and resolve its smart-account address.
-3. Unlock only the persistent treasury through the official WDK CLI.
-4. Ask the CLI for a structured funding dry run.
-5. Display the budget, estimated network fee, and total treasury requirement.
-6. Fail before confirmation or broadcast if the treasury balance cannot cover the total.
-7. Fund the ephemeral address after explicit confirmation and lock the treasury.
-8. Wait until the exact budget is visible in the SDK sandbox, then launch the command.
-9. On child exit or interruption, quote and sweep the spendable USD₮ remainder to the treasury.
-10. Wait for the sweep UserOperation to confirm, dispose the SDK account and manager, and zero Ration's seed buffer.
+1. Validate the official standard Sepolia EVM configuration.
+2. Create one in-memory standard WDK EOA.
+3. Unlock the persistent treasury and read its USDT and ETH balances.
+4. Quote the sandbox's USDT sweep and native ETH return through the official SDK.
+5. Add a small buffer and dry-run the treasury's ETH and USDT transfers through the official CLI.
+6. Fail before confirmation or broadcast unless the treasury has the exact USDT budget and enough ETH for all session infrastructure.
+7. Provision the ephemeral EOA with its small ETH reserve, then transfer the exact requested USDT budget.
+8. Lock the treasury and launch the command after both balances are visible in the sandbox.
+9. On child exit or interruption, sweep the full remaining USDT balance first.
+10. Return any remaining ETH whose value exceeds its native transfer fee.
+11. Dispose the SDK account and manager, zero Ration's seed buffer, and drop references.
 
-The funding preview is shown as:
+The confirmation preview keeps budget and infrastructure separate:
 
 ```text
-Budget       1.00 USDT
-Network fee  0.05 USDT
-Total        1.05 USDT
+Budget        0.50 USDT
+Gas reserve   0.000... ETH (infrastructure)
 ```
 
-The treasury must cover `budget + funding fee`. The sandbox also pays its own outgoing and final sweep fees from its budget.
+The user budget is always USDT. Sepolia ETH is provisioned only for lifecycle gas and is never added to, deducted from, or described as the agent budget.
 
 ## MCP Status
 
 The lifecycle and ownership boundary are implemented, but the launched command is not yet connected to wallet tools. Until the restricted MCP integration lands, the child cannot transact with the ephemeral wallet.
 
-The intended integration is the official WDK MCP Toolkit configured only from the in-memory sandbox material. It must not connect to the WDK CLI daemon or expose the treasury. Its `close()` lifecycle will be joined to the existing sweep-and-dispose `finally` boundary once the documented toolkit beta is available from the package registry.
+The intended integration is the official WDK MCP Toolkit configured only from in-memory sandbox material. It must not connect to the WDK CLI daemon or expose the treasury. Its `close()` lifecycle will join the existing sweep-and-dispose `finally` boundary.
 
 ## Security Model
 
 - The treasury remains in official WDK CLI encrypted storage.
-- Normal sessions never call `wdk wallet create` for a sandbox.
-- Sandbox seed bytes, accounts, and wallet managers exist only in the Ration process.
+- Normal sessions never register a sandbox with the WDK CLI.
+- Sandbox seed bytes, account, and manager exist only in the Ration process.
 - Sandbox secrets are never printed, passed in the child environment, or persisted by Ration.
-- Treasury funding uses the official CLI structured dry-run and transfer commands.
-- Sandbox reads, quotes, sweep transfer, confirmation wait, and disposal use documented ERC-4337 SDK APIs.
-- Funding is blocked when its quoted fee reaches the configured `0.1 USD₮` safety cap.
+- Treasury balance reads, dry runs, and transfers use structured official WDK CLI output.
+- Sandbox reads, quotes, transfers, confirmation waits, and disposal use current standard EVM WDK APIs.
+- Treasury solvency is checked independently for the exact USDT budget and ETH infrastructure requirement.
 - Cleanup runs after normal exit, launch failure, Ctrl+C, and termination signals.
-- A failed sweep or disposal makes the session fail rather than claiming successful cleanup.
+- USDT cleanup is always attempted before ETH recovery, and disposal is attempted even if either sweep fails.
+- A failed economical sweep or disposal makes the session fail rather than claiming successful cleanup.
 
-This project currently targets Sepolia and test USD₮. WDK packages are beta software; use test networks and test amounts.
+This project targets Sepolia and test USDT. WDK packages are beta software; use test networks and test amounts.
 
 ## Local Development
 
 ```bash
 npm run ration -- setup
 npm run ration -- status
-npm run ration -- run --budget 1 -- claude
+npm run ration -- run --budget 0.5 -- node -e "console.log('Hello from the sandbox')"
 npm test
 ```
 
@@ -135,8 +117,5 @@ npm run wdk -- --help
 
 - [WDK documentation](https://docs.wdk.tether.io/)
 - [WDK CLI documentation](https://docs.wdk.tether.io/cli/)
-- [WDK ERC-4337 usage](https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm-erc-4337/usage/)
-- [WDK ERC-4337 configuration](https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm-erc-4337/configuration/)
-- [WDK ERC-4337 API](https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm-erc-4337/api-reference/)
+- [WDK standard EVM module](https://github.com/tetherto/wdk-wallet-evm)
 - [WDK MCP Toolkit](https://docs.wdk.tether.io/ai/mcp-toolkit/)
-- [WDK MCP Toolkit repository](https://github.com/tetherto/wdk-mcp-toolkit)

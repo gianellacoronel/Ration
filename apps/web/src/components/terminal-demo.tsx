@@ -86,10 +86,10 @@ function RunOutput({ state }: { state: TerminalState }) {
     <div className="space-y-4 text-ration-cream/60">
       {reached("checking") && (
         <div>
-          <p>Creating in-memory sandbox...</p>
+          <p>Creating in-memory EOA...</p>
           {reached("locking") && (
             <div className="mt-1">
-              <Check>ephemeral address ready</Check>
+              <Check>ephemeral EOA ready</Check>
               <Check>no seed persisted</Check>
             </div>
           )}
@@ -102,7 +102,7 @@ function RunOutput({ state }: { state: TerminalState }) {
           {reached("unlocking") && (
             <div className="mt-1">
               <Check>budget {terminalDemo.balance}</Check>
-              <Check>total {terminalDemo.total}</Check>
+              <Check>gas reserve {terminalDemo.gasReserve}</Check>
             </div>
           )}
         </div>
@@ -162,11 +162,11 @@ function CommandOutput({ command, state }: { command: CommandName; state: Termin
 
     return (
       <div className="mt-5 text-ration-cream/60">
-        <p className="mb-2 text-ration-cream">Persistent treasury ready</p>
+        <p className="mb-2 text-ration-cream">Treasury ready</p>
         <dl className="grid grid-cols-[6.5rem_auto]">
-          <dt>Owner</dt><dd>human</dd>
+          <dt>Account</dt><dd>Sepolia EOA</dd>
           <dt>Storage</dt><dd className="text-ration-orange">WDK CLI</dd>
-          <dt>Agent</dt><dd>no access</dd>
+          <dt>Fund</dt><dd>USDT + ETH</dd>
         </dl>
       </div>
     );
@@ -179,7 +179,8 @@ function CommandOutput({ command, state }: { command: CommandName; state: Termin
       <div className="mt-5 text-ration-cream/60">
         <p className="mb-2 text-ration-cream">Ration treasury</p>
         <dl className="grid grid-cols-[6.5rem_auto]">
-          <dt>Balance</dt><dd className="text-ration-orange">{terminalDemo.treasuryBalance}</dd>
+          <dt>USDT</dt><dd className="text-ration-orange">{terminalDemo.treasuryBalance}</dd>
+          <dt>Gas</dt><dd>{terminalDemo.treasuryGas}</dd>
           <dt>Status</dt><dd>locked</dd>
         </dl>
       </div>

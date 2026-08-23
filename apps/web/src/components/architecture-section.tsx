@@ -22,16 +22,16 @@ export function ArchitectureSection() {
           <div className="mx-auto max-w-xl bg-background p-4 mobile:p-7">
             <div className="mx-auto max-w-48"><Node label="Ration" Icon={Command} accent /></div>
             <div className="mx-auto h-8 w-px bg-ration-orange" />
-            <div className="mx-auto max-w-72"><Node label="Treasury / WDK CLI" Icon={Terminal} /></div>
-            <div className="mx-auto flex h-12 w-px items-center bg-ration-orange"><span className="ml-3 whitespace-nowrap font-mono text-[0.55rem] uppercase tracking-widest text-muted">exact budget</span></div>
-            <div className="mx-auto max-w-72"><Node label="In-memory WDK sandbox" Icon={Wallet} accent /></div>
+            <div className="mx-auto max-w-72"><Node label="Treasury EOA / WDK CLI" Icon={Terminal} /></div>
+            <div className="mx-auto flex h-12 w-px items-center bg-ration-orange"><span className="ml-3 whitespace-nowrap font-mono text-[0.55rem] uppercase tracking-widest text-muted">gas + exact USDT</span></div>
+            <div className="mx-auto max-w-72"><Node label="In-memory WDK EOA" Icon={Wallet} accent /></div>
             <div className="mx-auto h-8 w-px bg-border" />
             <div className="grid grid-cols-2 gap-4">
               <Node label="Restricted MCP / next" Icon={Network} />
               <Node label="Process" Icon={Bot} />
             </div>
             <div className="mx-auto h-8 w-px bg-ration-orange" />
-            <div className="mx-auto flex w-fit items-center gap-3 border-b border-ration-orange px-5 py-3 font-mono text-sm font-semibold"><Coins size={24} className="text-ration-orange" /> sweep / dispose</div>
+            <div className="mx-auto flex w-fit items-center gap-3 border-b border-ration-orange px-5 py-3 font-mono text-sm font-semibold"><Coins size={24} className="text-ration-orange" /> USDT / ETH / dispose</div>
             <div className="mt-8 flex flex-wrap justify-center gap-3 font-mono text-[0.6rem] uppercase tracking-[0.12em] text-muted">
               <span>persistent treasury</span><span className="text-ration-orange">/</span><span>ephemeral agent</span>
             </div>

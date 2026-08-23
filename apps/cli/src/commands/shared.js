@@ -8,7 +8,7 @@ import {
   WdkConfigError,
   WdkCliUnavailableError
 } from '../errors.js'
-import { inspectPaymasterTokenConfig } from '../paymaster.js'
+import { inspectStandardSepoliaConfig } from '../network.js'
 import {
   runWdkGetNetworkConfig,
   runWdkWalletList,
@@ -80,46 +80,50 @@ export async function loadWallets (options, output) {
   }
 }
 
-export async function requirePaymasterTokenMode (options, output) {
+export async function requireStandardSepolia (options, output) {
   let config
   try {
     config = await (options.runWdkGetNetworkConfig ?? runWdkGetNetworkConfig)()
   } catch (error) {
     if (error instanceof WdkCliUnavailableError) unavailableMessage(output)
-    else if (error instanceof WdkConfigError) output.error('Could not inspect WDK paymaster configuration.')
+    else if (error instanceof WdkConfigError) output.error('Could not inspect the WDK Sepolia configuration.')
     else throw error
     return null
   }
 
-  const paymaster = inspectPaymasterTokenConfig(config)
-  if (paymaster.ready) return paymaster
+  const standard = inspectStandardSepoliaConfig(config)
+  if (standard.ready) return standard
 
-  output.error('WDK Paymaster Token mode is not configured for the Ration Sepolia environment.')
-  output.error('Use Candide\'s current public Sepolia endpoint and the registered test USD₮ token.')
-  output.error('No Candide API key or sponsorship policy is required.')
+  output.error("WDK's standard Sepolia EVM network is not configured for Ration.")
+  output.error("Use the official 'sepolia' network with @tetherto/wdk-wallet-evm and a working RPC provider.")
   return null
 }
 
-export function transferFailureMessage (error, amount, output) {
+export function transferFailureMessage (error, amount, asset, output) {
   if (error instanceof WdkCliUnavailableError) {
     unavailableMessage(output)
     return
   }
   if (!(error instanceof WalletTransferError)) throw error
 
-  if (error.wdkCode === 'INVALID_AMOUNT') {
+  if (error.wdkCode === 'INVALID_AMOUNT' && asset === 'USDT') {
     output.error(`Budget '${amount}' is not a valid positive USD₮ amount.`)
   } else if (
     error.wdkCode === 'INSUFFICIENT_BALANCE' ||
     error.wdkCode === 'INSUFFICIENT_FUNDS' ||
-    /token balance lower/i.test(error.message)
+    /token balance lower|insufficient funds/i.test(error.message)
   ) {
-    output.error('The treasury does not have enough USD₮ for this amount and its gas fee.')
-    output.error("Add USD₮ to the treasury address shown by 'ration setup', then try again.")
+    if (asset === 'ETH') {
+      output.error('The treasury does not have enough Sepolia ETH to provision sandbox gas.')
+      output.error("Add Sepolia ETH to the treasury address shown by 'ration setup', then try again.")
+    } else {
+      output.error('The treasury does not have enough USD₮ for this budget.')
+      output.error("Add test USD₮ to the treasury address shown by 'ration setup', then try again.")
+    }
   } else if (error.wdkCode === 'WALLET_NOT_UNLOCKED' || error.wdkCode === 'WALLET_LOCKED') {
     output.error('The treasury was locked before funding completed. Try again.')
   } else {
-    output.error('The USD₮ gas payment failed through Candide. Nothing was broadcast.')
-    output.error('Check the paymaster availability and the wallet balance, then try again.')
+    output.error(`The treasury ${asset} transfer failed through WDK.`)
+    output.error('Ration will reconcile and recover any funds that may have been submitted.')
   }
 }

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-import { NETWORK, SESSION_TTL_MINUTES, TOKEN } from './config.js'
+import { NATIVE_TOKEN, NETWORK, SESSION_TTL_MINUTES, TOKEN } from './config.js'
 import {
   WalletAddressError,
   WalletBalanceError,
@@ -212,6 +212,16 @@ export function runWdkGetUsdtBalance (wallet, network = NETWORK, options = {}) {
   )
 }
 
+export function runWdkGetEthBalance (wallet, network = NETWORK, options = {}) {
+  return spawnJson(
+    ['get', 'balance', '--wallet', wallet, '--network', network],
+    WalletBalanceError,
+    (result) => result?.network === network && result?.symbol === NATIVE_TOKEN &&
+      typeof result?.balance === 'string' && typeof result?.formatted === 'string',
+    options
+  )
+}
+
 export function runWdkTransfer (input, options = {}) {
   const phase = input.dryRun ? 'dry-run' : 'broadcast'
   const args = [
@@ -219,9 +229,10 @@ export function runWdkTransfer (input, options = {}) {
     '--wallet', input.sourceWallet,
     '--network', input.network,
     '--to', input.to,
-    '--amount', input.amount,
-    '--token', TOKEN
+    '--amount', String(input.amount)
   ]
+  if (input.baseUnits) args.push('--base-units')
+  if (input.token) args.push('--token', input.token)
   if (input.dryRun) args.push('--dry-run')
 
   return spawnJson(
@@ -232,9 +243,10 @@ export function runWdkTransfer (input, options = {}) {
       }
     },
     (result) => {
-      if (result?.network !== input.network || result?.to !== input.to) return false
+      if (result?.network !== input.network || result?.to !== input.to ||
+        (input.expectedBaseUnits && result?.amount !== String(input.expectedBaseUnits))) return false
       if (input.dryRun) {
-        return result?.tokenSymbol === TOKEN &&
+        return result?.tokenSymbol === (input.token ? TOKEN : NATIVE_TOKEN) &&
           typeof result?.amountFormatted === 'string' &&
           typeof result?.estimatedFee === 'string'
       }

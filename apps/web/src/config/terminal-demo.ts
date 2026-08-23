@@ -2,10 +2,10 @@ export const terminalDemo = {
   budget: "1",
   process: "claude",
   treasuryBalance: "5.00 USDT",
+  treasuryGas: "0.01 ETH",
   balance: "1.00 USDT",
-  fee: "0.05 USDT",
-  total: "1.05 USDT",
+  gasReserve: "0.0001 ETH",
   spent: "0.00 USDT",
-  remaining: "0.95 USDT",
+  remaining: "1.00 USDT",
   status: "disposed",
 } as const;

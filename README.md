@@ -5,7 +5,7 @@ Ration gives an AI command a disposable, budgeted financial sandbox while keepin
 ```text
 Persistent standard Sepolia EOA (WDK CLI)
         ↓ small ETH gas reserve + exact USDT budget
-Ephemeral in-memory standard Sepolia EOA
+Recoverable session-specific standard Sepolia EOA
         ↓
 Restricted Ration MCP (catalog + purchase + balances + USDT transfer)
         ↓
@@ -19,7 +19,14 @@ Agent
 - **Treasury:** the official WDK CLI wallet `rationtreasury`, used on the built-in standard `sepolia` network. It is a persistent EOA, encrypted at rest, human-owned, and unlocked only for a treasury operation.
 - **Sandbox:** a fresh official `@tetherto/wdk-wallet-evm` EOA created inside each `ration run` process. It has no WDK CLI registration, passphrase, persisted catalog entry, Smart Account, bundler, or paymaster.
 
-Ration generates 64 cryptographically random bytes of sandbox seed material in mutable memory. It does not create or display a mnemonic. The same buffer is passed directly to the official WDK core used by the MCP Toolkit, avoiding an immutable mnemonic conversion. Cleanup calls the documented WDK disposal methods, zeroes Ration's own seed buffer, and drops its references. This is best-effort process-memory hygiene, not a guarantee that every runtime or dependency copy has been erased.
+Ration generates a random session ID and derives 64 bytes of sandbox seed material
+with HKDF-SHA-256 from that ID and a recovery root kept in the OS credential
+store. It does not create or display a mnemonic or persist the derived seed. The
+same mutable buffer is passed directly to the official WDK core used by the MCP
+Toolkit, avoiding an immutable mnemonic conversion. Cleanup calls the documented
+WDK disposal methods, zeroes Ration's own seed buffer, and drops its references.
+This is best-effort process-memory hygiene, not a guarantee that every runtime or
+dependency copy has been erased.
 
 ## Requirements
 
@@ -124,7 +131,7 @@ attached to Codex, exposed through MCP, or used as the demo seller.
 ### 5. Run The Acceptance Demo
 
 ```bash
-ration run --budget 0.10 -- codex
+ration run --budget 0.10 --ttl 15m -- codex
 ```
 
 Unlock the treasury when WDK prompts, approve sandbox funding, and then give
@@ -142,20 +149,20 @@ the final receipt shows each purchase or direct transfer and the recovered funds
 A one-shot Codex invocation is also supported:
 
 ```bash
-ration run --budget 0.10 -- codex exec \
+ration run --budget 0.10 --ttl 15m -- codex exec \
   "Produce the best company research brief you can with the resources available to you."
 ```
 
 ## Running A Session
 
 ```bash
-ration run --budget <amount> -- <command> [args...]
+ration run --budget <amount> [--ttl <duration>] [--hard-ttl] -- <command> [args...]
 ```
 
 The normal session lifecycle is:
 
 1. Validate the official standard Sepolia EVM configuration.
-2. Create one in-memory standard WDK EOA.
+2. Derive one session-specific standard WDK EOA from a recovery root held by the OS credential store. Derived seed bytes exist only in memory and are zeroed on disposal.
 3. Unlock the persistent treasury and read its USDT and ETH balances.
 4. Quote gas for up to five catalog purchases, the sandbox's USDT sweep, and native ETH return through the official SDK.
 5. Add a small buffer and dry-run the treasury's ETH and USDT transfers through the official CLI.
@@ -167,6 +174,15 @@ The normal session lifecycle is:
 11. Sweep the full remaining USDT balance first, then return economical ETH.
 12. Dispose the sandbox SDK account and manager, zero Ration's seed buffer, and drop references.
 13. Persist a structured financial receipt after cleanup finishes.
+
+`--ttl` limits the financial session, not the child command. Its countdown starts
+when the USDT budget is confirmed. At expiration Ration rejects new MCP writes,
+waits for already-broadcast payments to settle, sweeps USDT and economical
+Sepolia ETH, disposes the wallet and MCP resources, and finalizes the receipt.
+The child can continue non-financial work. Ration warns at two minutes and 30
+seconds remaining when the selected duration permits. `--hard-ttl` additionally
+terminates the child and is intended for unattended or CI runs. Durations use
+`ms`, `s`, `m`, or `h`, for example `30s` or `15m`.
 
 Sepolia funding and recovery each require two confirmed transactions, so their duration follows testnet block production and RPC latency. Ration reports every submission and recovery phase, prints elapsed-time updates every 10 seconds, and polls for confirmations once per second; it does not skip confirmation or return ETH before the USDT sweep is safely confirmed.
 
@@ -202,6 +218,39 @@ files are created with user-only permissions, and writes are atomic.
 
 Receipts contain no seed material, private keys, passphrases, wallet credentials,
 child arguments, or child environment variables.
+
+## Exceptional Crash Recovery
+
+`ration setup` creates a random recovery root in macOS Keychain, Linux Secret
+Service, or Windows Credential Vault through native OS credential bindings. If
+that secure store is unavailable, setup and run fail closed. The root, derived
+sandbox seeds, private keys, and treasury credentials are never written to
+Ration files.
+
+Each run atomically maintains an authenticated, user-only recovery journal under
+the Ration data directory. It contains only non-secret session identifiers,
+public addresses, budget and gas values, lifecycle timestamps, process lease
+metadata, and transaction hashes/statuses. HKDF-SHA-256 derives the exact
+sandbox seed and a separate journal authentication key from the recovery root
+and random session ID.
+
+After an exceptional termination such as `kill -9`, power loss, or a Node crash,
+the next Ration invocation reports any authenticated funded journal that did not
+complete. Recover one session or every incomplete session with:
+
+```bash
+ration recover <session-id>
+ration recover
+```
+
+Recovery refuses a live session lease, reconstructs and verifies the exact
+sandbox address, reconciles known transaction hashes, sweeps available USDT and
+economical ETH to the authenticated treasury address, disposes the wallet,
+writes the financial receipt, and marks the journal recovered. It is idempotent:
+completed and recovered sessions are not swept again. Ambiguous funding remains
+incomplete until Sepolia settles rather than being incorrectly marked recovered.
+Normal child exit and successful financial TTL expiration finish their journals
+and never require `ration recover`.
 
 ## MCP Access
 

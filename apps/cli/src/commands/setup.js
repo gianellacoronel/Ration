@@ -1,6 +1,7 @@
 import { NETWORK, TREASURY_NAME } from '../config.js'
 import { isTreasuryConfigured } from '../domain.js'
 import { WalletCreationError, WalletUnlockError } from '../errors.js'
+import { ensureRecoveryRoot, SecureCredentialStoreError } from '../recovery.js'
 import { runWdkGetAddress, runWdkWalletCreate, runWdkWalletUnlock } from '../wdk.js'
 import {
   loadWallets,
@@ -12,6 +13,17 @@ import {
 
 export async function setupCommand (options, output, { insecure = false } = {}) {
   if (!(await requireStandardSepolia(options, output))) return 1
+  let recoveryRoot
+  try {
+    recoveryRoot = await (options.ensureRecoveryRoot ?? ensureRecoveryRoot)(options)
+  } catch (error) {
+    output.error(error instanceof SecureCredentialStoreError
+      ? error.message
+      : 'Ration could not initialize secure crash recovery.')
+    return 1
+  } finally {
+    recoveryRoot?.fill(0)
+  }
   let wallets = await loadWallets(options, output)
   if (!wallets) return 1
 

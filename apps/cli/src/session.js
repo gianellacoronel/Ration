@@ -18,6 +18,7 @@ export function createSessionReceipt (input, options = {}) {
   const id = (options.randomUUID ?? randomUUID)()
   const now = options.now
   let activitySequence = 0
+  let activityListener
   const receipt = {
     schemaVersion: RECEIPT_SCHEMA_VERSION,
     sessionId: id,
@@ -55,6 +56,12 @@ export function createSessionReceipt (input, options = {}) {
     },
     sandboxDisposalStatus: 'pending',
     cleanup: { mcpStatus: 'not_opened', errors: [] },
+    financialSession: {
+      ttlMs: null,
+      hardTtl: false,
+      expiresAt: null,
+      status: 'created'
+    },
     exitCode: null
   }
 
@@ -72,6 +79,12 @@ export function createSessionReceipt (input, options = {}) {
     },
     recordCleanupError (stage, message) {
       receipt.cleanup.errors.push({ stage, message, at: timestamp(now) })
+    },
+    setActivityListener (listener) {
+      activityListener = listener
+    },
+    flushActivity () {
+      return activityListener?.()
     }
   }
 }

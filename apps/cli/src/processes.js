@@ -21,13 +21,32 @@ export function runRequestedCommand (command, args, options = {}) {
       return
     }
     activeChildren.add(child)
+    let forceKillTimer
+
+    const onAbort = () => {
+      try {
+        child.kill(options.signal.reason === 'SIGKILL' ? 'SIGKILL' : 'SIGTERM')
+      } catch {}
+      if (options.signal.reason !== 'SIGKILL') {
+        forceKillTimer = setTimeout(() => {
+          if (!activeChildren.has(child)) return
+          try { child.kill('SIGKILL') } catch {}
+        }, options.signalGraceMs ?? 1000)
+        forceKillTimer.unref?.()
+      }
+    }
+    options.signal?.addEventListener('abort', onAbort, { once: true })
 
     child.once('error', (error) => {
       activeChildren.delete(child)
+      clearTimeout(forceKillTimer)
+      options.signal?.removeEventListener('abort', onAbort)
       reject(new CommandLaunchError(command, error))
     })
     child.once('close', (code, signal) => {
       activeChildren.delete(child)
+      clearTimeout(forceKillTimer)
+      options.signal?.removeEventListener('abort', onAbort)
       resolve({ code, signal })
     })
   })

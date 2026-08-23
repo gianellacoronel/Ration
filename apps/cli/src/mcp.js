@@ -30,6 +30,7 @@ const TRANSACTION_TIMEOUT_MS = 180000
 const TRANSACTION_POLL_MS = 1000
 const MCP_TOOL_TIMEOUT_SECONDS = 240
 const CONFIRMED_TRANSFER = Symbol('confirmedTransfer')
+export const FINANCIAL_SESSION_EXPIRED_MESSAGE = 'Ration financial session expired. No further spending is allowed.'
 
 async function confirmedTransaction (account, hash) {
   const receipt = await account.waitForTransaction(hash, {
@@ -42,15 +43,14 @@ async function confirmedTransaction (account, hash) {
   }
 }
 
-function confirmTokenTransfers (server, pending, session, paymentContext, isAcceptingPayments) {
+function confirmTokenTransfers (server, pending, session, paymentContext, paymentRejection) {
   server.wdk.registerMiddleware(CHAIN, async (account) => {
     if (account[CONFIRMED_TRANSFER]) return
 
     const broadcast = account.transfer.bind(account)
     account.transfer = async (options) => {
-      if (!isAcceptingPayments()) {
-        throw new Error('The Ration session is closing and cannot start another payment.')
-      }
+      const rejection = paymentRejection()
+      if (rejection) throw new Error(rejection)
       const operation = (async () => {
         const context = paymentContext.getStore()
         const activityId = session?.recordActivity({
@@ -63,6 +63,7 @@ function confirmTokenTransfers (server, pending, session, paymentContext, isAcce
           status: 'submission_unknown',
           submittedAt: session?.now() ?? new Date().toISOString()
         })
+        await session?.flushActivity?.()
         const result = await broadcast(options)
         session?.updateActivity(activityId, {
           transactionHash: result.hash,
@@ -70,12 +71,15 @@ function confirmTokenTransfers (server, pending, session, paymentContext, isAcce
           status: 'broadcast',
           broadcastAt: session.now()
         })
+        await session?.flushActivity?.()
         try {
           await confirmedTransaction(account, result.hash)
           session?.updateActivity(activityId, { status: 'confirmed', confirmedAt: session.now() })
+          await session?.flushActivity?.()
           return result
         } catch (error) {
           session?.updateActivity(activityId, { status: 'confirmation_failed', failedAt: session.now() })
+          await session?.flushActivity?.()
           throw error
         }
       })()
@@ -267,6 +271,8 @@ Args:
       }
     },
     async ({ resourceId, amountUsdt }) => {
+      const rejection = options.paymentRejection?.()
+      if (rejection) return toolError(new Error(rejection))
       const cached = unlockedPayloads.get(resourceId)
       if (cached) {
         return {
@@ -436,7 +442,12 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
   const resolveDemoOriginImpl = options.resolveDemoOrigin ?? resolveDemoOrigin
   const pendingConfirmations = new Set()
   const paymentContext = new AsyncLocalStorage()
-  let acceptingPayments = true
+  let lifecycle = 'open'
+  const paymentRejection = () => {
+    if (lifecycle === 'expired') return FINANCIAL_SESSION_EXPIRED_MESSAGE
+    if (lifecycle !== 'open') return 'The Ration session is closing and cannot start another payment.'
+    return null
+  }
   // Funding is the one-time authorization; this server only holds the sandbox key.
   const server = new McpServer('ration-sandbox', '0.1.0', {
     capabilities: { elicitation: false }
@@ -450,10 +461,10 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
     pendingConfirmations,
     options.session,
     paymentContext,
-    () => acceptingPayments
+    paymentRejection
   )
   const demoOrigin = resolveDemoOriginImpl(options.demoEnv ?? process.env)
-  registerDemoTools(server, demoOrigin, { ...options, paymentContext })
+  registerDemoTools(server, demoOrigin, { ...options, paymentContext, paymentRejection })
   let directory
   let socketServer
   let connection
@@ -464,7 +475,7 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
   const close = async () => {
     if (closed) return
     closed = true
-    acceptingPayments = false
+    if (lifecycle !== 'expired') lifecycle = 'closing'
     let closeError
     try {
       while (pendingConfirmations.size > 0) {
@@ -486,6 +497,15 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
       closeError ??= error
     }
     if (closeError) throw closeError
+    lifecycle = 'closed'
+  }
+
+  const expire = async () => {
+    if (lifecycle !== 'open') return
+    lifecycle = 'expired'
+    while (pendingConfirmations.size > 0) {
+      await Promise.allSettled([...pendingConfirmations])
+    }
   }
 
   try {
@@ -517,6 +537,7 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
         if (agent === 'codex') return { command, ...configureCodex(args, env, bridgeCommand) }
         return { command, args, env }
       },
+      expire,
       close
     }
   } catch (error) {

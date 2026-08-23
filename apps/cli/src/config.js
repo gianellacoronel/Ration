@@ -3,13 +3,14 @@ export const HELP = `Usage: ration <command> [options]
 Commands:
   setup                 Create or recover the Ration treasury
   status                Show the treasury address and balance
-  run --budget <n> ...  Run a command in an ephemeral sandbox
+  run --budget <n> ...  Run a command in a recoverable sandbox
+  recover [session-id]  Recover funds after an exceptional crash
   history [session-id]  Show recent sessions or one session
   help                  Show this help
 
 Getting started:
   ration setup
-  ration run --budget 1 -- opencode`
+  ration run --budget 1 --ttl 15m -- opencode`
 
 export const TREASURY_NAME = 'rationtreasury'
 export const NETWORK = 'sepolia'

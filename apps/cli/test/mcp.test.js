@@ -421,6 +421,43 @@ test('closing waits for an autonomous transfer and blocks another broadcast', as
   }
 })
 
+test('financial expiration rejects new writes with a stable clear error', async () => {
+  const seed = new Uint8Array(64).fill(5)
+  const events = []
+  const service = await createSandboxMcpService(seed, config, '0xephemeral', {
+    WalletManager: fakeWallet(events, seed)
+  })
+  const launch = service.configureLaunch('opencode', [], {})
+  const command = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT).mcp.ration.command
+  const transport = new StdioClientTransport({
+    command: command[0],
+    args: command.slice(1),
+    stderr: 'pipe'
+  })
+  const client = new Client({ name: 'ration-test', version: '1.0.0' })
+
+  try {
+    await client.connect(transport)
+    await service.expire()
+    const transfer = await client.callTool({
+      name: 'transfer',
+      arguments: { chain: 'sepolia', token: 'USDT', to: '0xRecipient', amount: '0.01' }
+    })
+    const purchase = await client.callTool({
+      name: 'ration_purchaseResource',
+      arguments: { resourceId: 'market-snapshot', amountUsdt: '0.01' }
+    })
+    assert.equal(transfer.isError, true)
+    assert.match(transfer.content[0].text, /Ration financial session expired\. No further spending is allowed\./)
+    assert.equal(purchase.isError, true)
+    assert.equal(purchase.content[0].text, 'Ration financial session expired. No further spending is allowed.')
+    assert.equal(events.some((event) => event[0] === 'transfer'), false)
+  } finally {
+    await client.close()
+    await service.close()
+  }
+})
+
 test('catalog discovery and consecutive purchases use explicit validated prices without elicitation', async () => {
   const seed = new Uint8Array(64).fill(7)
   const events = []

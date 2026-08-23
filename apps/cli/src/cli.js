@@ -4,6 +4,17 @@ export * from './errors.js'
 export { runRequestedCommand } from './processes.js'
 export { confirmTransfer } from './prompts.js'
 export {
+  acquireSessionLease,
+  createSessionJournal,
+  ensureRecoveryRoot,
+  listIncompleteSessionJournals,
+  persistSessionJournal,
+  prepareRecoverySession,
+  readSessionJournal,
+  transitionSessionJournal,
+  verifySessionJournal
+} from './recovery.js'
+export {
   createSessionReceipt,
   finalizeSessionReceipt,
   listSessionReceipts,

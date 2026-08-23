@@ -29,14 +29,19 @@ async function confirmedTransaction (account, hash) {
     interval: CHAIN_POLL_MS
   })
   if (receipt.finality === 'dropped' || receipt.success === false) {
-    throw new Error('The sandbox transaction was not confirmed successfully.')
+    const error = new Error('The sandbox transaction was not confirmed successfully.')
+    error.transactionSettled = true
+    throw error
   }
   return receipt
 }
 
 export async function createEphemeralSandbox (config, options = {}) {
   const WalletManager = options.WalletManager ?? WalletManagerEvm
-  const seed = (options.randomBytes ?? randomBytes)(64)
+  const seed = options.seed ?? (options.randomBytes ?? randomBytes)(64)
+  if (!(seed instanceof Uint8Array) || seed.byteLength !== 64) {
+    throw new Error('The sandbox seed must contain exactly 64 mutable bytes.')
+  }
   const Wdk = options.WDK ?? WDK
   let wdk
   let account
@@ -73,6 +78,7 @@ export async function createEphemeralSandbox (config, options = {}) {
       address,
       getUsdtBalance: () => account.getTokenBalance(USDT_ADDRESS),
       getEthBalance: () => account.getBalance(),
+      waitForTransaction: (hash) => confirmedTransaction(account, hash),
       openMcp: (mcpOptions) => createSandboxMcpService(
         seed,
         config,
@@ -94,7 +100,7 @@ export async function createEphemeralSandbox (config, options = {}) {
           nativeFee: nativeQuote.fee
         }
       },
-      async sweepUsdt (recipient) {
+      async sweepUsdt (recipient, hooks = {}) {
         const balance = await account.getTokenBalance(USDT_ADDRESS)
         if (balance === 0n) return { amount: 0n, fee: 0n, remaining: 0n, transactions: [] }
 
@@ -114,6 +120,7 @@ export async function createEphemeralSandbox (config, options = {}) {
         }
         let result
         try {
+          await hooks.onTransactions?.([transaction])
           result = await account.transfer({
             token: USDT_ADDRESS,
             recipient,
@@ -124,8 +131,10 @@ export async function createEphemeralSandbox (config, options = {}) {
             fee: result.fee,
             status: 'confirmation_unknown'
           })
+          await hooks.onTransactions?.([transaction])
           await confirmedTransaction(account, result.hash)
           transaction.status = 'confirmed'
+          await hooks.onTransactions?.([transaction])
         } catch (error) {
           const failure = error instanceof Error ? error : new Error('The token sweep failed.')
           failure.partialSweep = {
@@ -149,7 +158,7 @@ export async function createEphemeralSandbox (config, options = {}) {
           remaining
         }
       },
-      async sweepEth (recipient) {
+      async sweepEth (recipient, hooks = {}) {
         let amount = 0n
         let fee = 0n
         let hash
@@ -175,14 +184,17 @@ export async function createEphemeralSandbox (config, options = {}) {
               status: 'submission_unknown'
             }
             transactions.push(transaction)
+            await hooks.onTransactions?.(transactions)
             const result = await account.sendTransaction({ to: recipient, value: exactValue })
             Object.assign(transaction, {
               hash: result.hash,
               fee: result.fee,
               status: 'confirmation_unknown'
             })
+            await hooks.onTransactions?.(transactions)
             await confirmedTransaction(account, result.hash)
             transaction.status = 'confirmed'
+            await hooks.onTransactions?.(transactions)
             amount += exactValue
             fee += result.fee
             hash = result.hash

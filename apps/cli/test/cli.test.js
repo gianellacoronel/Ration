@@ -32,6 +32,8 @@ const GAS_RESERVE = 151250n
 function main (args, options = {}) {
   return cliMain(args, {
     runWdkGetNetworkConfig: async () => STANDARD_CONFIG,
+    ensureRecoveryRoot: async () => Buffer.alloc(32, 1),
+    listIncompleteSessionJournals: async () => [],
     ...options
   })
 }
@@ -155,6 +157,12 @@ function successfulRunOptions (events, overrides = {}) {
       events.push(['command', command, args])
       return { code: 0, signal: null }
     },
+    prepareRecoverySession: async () => ({
+      seed: Buffer.alloc(64, 2),
+      journalKey: Buffer.alloc(32, 3)
+    }),
+    acquireSessionLease: async () => async () => {},
+    persistSessionJournal: async () => '/tmp/ration/recovery.json',
     persistSessionReceipt: async () => '/tmp/ration/session.json',
     ...overrides,
     sandbox: undefined
@@ -269,6 +277,25 @@ test('launches the requested command directly without leaking WDK credentials', 
     if (previousSeedFile === undefined) delete process.env.WDK_SEED_FILE
     else process.env.WDK_SEED_FILE = previousSeedFile
   }
+})
+
+test('hard child cancellation escalates from SIGTERM to SIGKILL', async () => {
+  const child = new EventEmitter()
+  const signals = []
+  child.kill = (signal) => {
+    signals.push(signal)
+    if (signal === 'SIGKILL') queueMicrotask(() => child.emit('close', null, signal))
+    return true
+  }
+  const controller = new AbortController()
+  const result = runRequestedCommand('agent', [], {
+    spawnProcess: () => child,
+    signal: controller.signal,
+    signalGraceMs: 1
+  })
+  controller.abort('SIGTERM')
+  assert.deepEqual(await result, { code: null, signal: 'SIGKILL' })
+  assert.deepEqual(signals, ['SIGTERM', 'SIGKILL'])
 })
 
 test('uses the official standard Sepolia network for address and both balances', async () => {
@@ -452,6 +479,70 @@ test('run reports the demo acceptance totals and preserves cleanup order', async
   assert.deepEqual(events.slice(-5).map((event) => event[0]), [
     'close-mcp', 'sandbox-usdt', 'sweep-usdt', 'sweep-eth', 'dispose'
   ])
+})
+
+test('financial TTL revokes spending, sweeps funds, and leaves the child alive', async () => {
+  const { logs, errors, output } = captureOutput()
+  const events = []
+  let childSignal
+  let persisted
+  const sandbox = createSandbox(events, {
+    openMcp: async () => ({
+      configureLaunch: (command, args) => ({ command, args, env: process.env }),
+      expire: async () => events.push(['expire-mcp']),
+      close: async () => events.push(['close-mcp'])
+    })
+  })
+  const exitCode = await main(['run', '--budget', '0.10', '--ttl', '5ms', '--', 'codex'], {
+    output,
+    ...successfulRunOptions(events, { sandbox }),
+    runRequestedCommand: async (command, args, options) => {
+      events.push(['command', command, args])
+      childSignal = options.signal
+      return new Promise(() => {})
+    },
+    persistSessionReceipt: async (receipt) => { persisted = structuredClone(receipt) }
+  })
+
+  assert.equal(exitCode, 0)
+  assert.equal(childSignal.aborted, false)
+  assert.match(errors.join('\n'), /financial TTL expired/)
+  assert.deepEqual(events.slice(-6).map((event) => event[0]), [
+    'expire-mcp', 'close-mcp', 'sandbox-usdt', 'sweep-usdt', 'sweep-eth', 'dispose'
+  ])
+  assert.equal(persisted.financialSession.status, 'expired')
+  assert.equal(persisted.childCommand.status, 'running_after_financial_expiry')
+  assert.equal(logs.includes('Sandbox     disposed'), true)
+})
+
+test('hard financial TTL also terminates the child', async () => {
+  const { output } = captureOutput()
+  const events = []
+  let childSignal
+  const sandbox = createSandbox(events, {
+    openMcp: async () => ({
+      configureLaunch: (command, args) => ({ command, args, env: process.env }),
+      expire: async () => events.push(['expire-mcp']),
+      close: async () => events.push(['close-mcp'])
+    })
+  })
+  const exitCode = await main([
+    'run', '--budget', '0.10', '--ttl', '5ms', '--hard-ttl', '--', 'codex'
+  ], {
+    output,
+    ...successfulRunOptions(events, { sandbox }),
+    runRequestedCommand: async (command, args, options) => {
+      childSignal = options.signal
+      await new Promise((resolve) => options.signal.addEventListener('abort', resolve, { once: true }))
+      return { code: null, signal: 'SIGTERM' }
+    }
+  })
+
+  assert.equal(exitCode, 124)
+  assert.equal(childSignal.aborted, true)
+  assert.equal(childSignal.reason, 'SIGTERM')
+  assert.equal(events.some((event) => event[0] === 'sweep-usdt'), true)
+  assert.equal(events.at(-1)[0], 'dispose')
 })
 
 test('run fails before confirmation when treasury USDT is below the exact budget', async () => {
@@ -679,7 +770,7 @@ test('run rejects invalid syntax and non-USDT budgets', async () => {
   ]) {
     const { errors, output } = captureOutput()
     assert.equal(await main(args, { output }), 1)
-    assert.deepEqual(errors, ['Usage: ration run --budget <amount> -- <command> [args...]'])
+    assert.deepEqual(errors, ['Usage: ration run --budget <amount> [--ttl <duration>] [--hard-ttl] -- <command> [args...]'])
   }
 })
 

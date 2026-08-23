@@ -33,10 +33,6 @@ export function Hero() {
             <p className="hand-type mt-6 rotate-[-2deg] text-[clamp(1.7rem,3vw,2.5rem)] leading-none text-foreground wide:text-[2rem]">
               Give agents a ration, not your wallet.
             </p>
-            <p className="mt-7 max-w-lg border-l-2 border-ration-orange pl-4 font-mono text-xs leading-6 text-muted">
-              Set a USDT budget and wallet lifetime. If the session crashes,
-              authenticated recovery returns its remaining funds.
-            </p>
             <div className="mt-9 flex flex-col gap-3 mobile:flex-row">
               <a href={getStartedHref} className="inline-flex min-h-12 items-center justify-center gap-3 rounded-sm bg-ration-orange px-6 font-mono text-xs font-semibold uppercase tracking-[0.08em] text-ration-dark hover:bg-ration-orange-dark focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange">
                 Run the CLI <ArrowRight size={18} />

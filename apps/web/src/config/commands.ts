@@ -1,5 +1,7 @@
 import { terminalDemo } from "@/config/terminal-demo";
 
+export const RATION_INSTALL_COMMAND = "npm install --global ration-ai";
+
 export const commandVariables = {
   budget: "${BUDGET}",
   ttl: "${TTL}",

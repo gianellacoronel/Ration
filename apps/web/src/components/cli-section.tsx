@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Check, Copy, Terminal } from "lucide-react";
 
 import {
@@ -8,6 +8,7 @@ import {
   commandVariables,
   type CliCommandId,
 } from "@/config/commands";
+import { useClipboardFeedback } from "@/hooks/use-clipboard-feedback";
 
 const variables = Object.values(commandVariables);
 const variablePattern = new RegExp(
@@ -42,20 +43,13 @@ function HighlightedCommand({ command }: { command: string }) {
 
 export function CliSection() {
   const [activeId, setActiveId] = useState<CliCommandId>("run");
-  const [copyFeedback, setCopyFeedback] = useState<"copied" | "failed" | null>(null);
-  const feedbackTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { copy, reset: resetCopyFeedback, status: copyFeedback } = useClipboardFeedback();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const activeCommand = cliCommands.find(({ id }) => id === activeId)!;
 
-  useEffect(() => {
-    return () => {
-      if (feedbackTimeout.current) clearTimeout(feedbackTimeout.current);
-    };
-  }, []);
-
   function selectCommand(id: CliCommandId) {
     setActiveId(id);
-    setCopyFeedback(null);
+    resetCopyFeedback();
   }
 
   function handleTabKeyDown(event: React.KeyboardEvent, index: number) {
@@ -70,16 +64,7 @@ export function CliSection() {
   }
 
   async function copyCommand() {
-    if (feedbackTimeout.current) clearTimeout(feedbackTimeout.current);
-
-    try {
-      await navigator.clipboard.writeText(activeCommand.copyValue);
-      setCopyFeedback("copied");
-    } catch {
-      setCopyFeedback("failed");
-    }
-
-    feedbackTimeout.current = setTimeout(() => setCopyFeedback(null), 1800);
+    await copy(activeCommand.copyValue);
   }
 
   return (

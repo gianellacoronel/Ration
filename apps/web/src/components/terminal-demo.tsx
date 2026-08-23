@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Check as CheckIcon, Copy as CopyIcon } from "lucide-react";
 
 import {
@@ -8,6 +8,7 @@ import {
   terminalCommandOptions,
   type CommandName,
 } from "@/config/commands";
+import { useClipboardFeedback } from "@/hooks/use-clipboard-feedback";
 import { terminalDemo } from "@/config/terminal-demo";
 
 export type TerminalState =
@@ -237,14 +238,10 @@ export function TerminalDemo() {
   const [selectedCommand, setSelectedCommand] = useState<CommandName>("run");
   const [state, setState] = useState<TerminalState>("idle");
   const [typedCommand, setTypedCommand] = useState("");
-  const [copyFeedback, setCopyFeedback] = useState<{
-    name: CommandName;
-    status: "copied" | "failed";
-  } | null>(null);
+  const { copy, feedbackValue, status: copyFeedback } = useClipboardFeedback(1400);
   const [reducedMotion, setReducedMotion] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
-  const copyTimeout = useRef<number | null>(null);
 
   const command = terminalCommandOptions.find(({ name }) => name === selectedCommand)!;
 
@@ -253,12 +250,6 @@ export function TerminalDemo() {
     const handleChange = (event: MediaQueryListEvent) => setReducedMotion(event.matches);
     media.addEventListener("change", handleChange);
     return () => media.removeEventListener("change", handleChange);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (copyTimeout.current) window.clearTimeout(copyTimeout.current);
-    };
   }, []);
 
   useEffect(() => {
@@ -312,20 +303,6 @@ export function TerminalDemo() {
     setState(reducedMotion ? "completed" : "typing");
   }
 
-  async function copy(name: CommandName, value: string) {
-    if (copyTimeout.current) window.clearTimeout(copyTimeout.current);
-
-    try {
-      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(value);
-      setCopyFeedback({ name, status: "copied" });
-    } catch {
-      setCopyFeedback({ name, status: "failed" });
-    }
-
-    copyTimeout.current = window.setTimeout(() => setCopyFeedback(null), 1400);
-  }
-
   const isExecuting = state !== "idle" && state !== "completed";
 
   return (
@@ -362,11 +339,11 @@ export function TerminalDemo() {
               <button
                 type="button"
                 className="flex min-h-11 w-[4.75rem] shrink-0 cursor-pointer items-center justify-center gap-1.5 border-l border-ration-cream/15 px-2 font-mono text-[0.625rem] text-ration-cream/60 outline-none transition-[color,background-color,transform] [-webkit-tap-highlight-color:rgba(247,79,6,0.18)] hover:bg-ration-orange/[0.08] hover:text-ration-orange focus-visible:text-ration-orange active:scale-[0.97] active:bg-ration-orange/20 active:text-ration-orange"
-                onClick={() => copy(option.name, option.value)}
+                onClick={() => copy(option.value)}
                 aria-label={`Copy ${option.value}`}
               >
-                {copyFeedback?.name === option.name
-                  ? copyFeedback.status === "copied"
+                {feedbackValue === option.value && copyFeedback
+                  ? copyFeedback === "copied"
                     ? "Copied"
                     : "Try again"
                   : <><CopyIcon size={13} aria-hidden="true" /> Copy</>}
@@ -403,9 +380,9 @@ export function TerminalDemo() {
         </div>
       </div>
       <p className="sr-only" aria-live="polite">
-        {copyFeedback?.status === "copied"
+        {copyFeedback === "copied"
           ? "Command copied to clipboard."
-          : copyFeedback?.status === "failed"
+          : copyFeedback === "failed"
             ? "The command could not be copied."
             : ""}
       </p>

@@ -84,8 +84,9 @@ test('finalizes totals and renders purchases, transfers, returns, and disposal',
   assert.equal(receipt.unrecoveredUsdtBaseUnits, '0')
   assert.match(lines, /Budget      0\.10 USDT/)
   assert.match(lines, /Spent       0\.07 USDT/)
-  assert.match(lines, /deep-research/)
-  assert.match(lines, /0x5e4700\.\.\.f214/)
+  assert.match(lines, /Amount\s+Resource \/ recipient\s+Status/)
+  assert.match(lines, /-0\.02 USDT\s+deep-research\s+confirmed/)
+  assert.match(lines, /-0\.05 USDT\s+0x5e4700\.\.\.f214\s+confirmed/)
   assert.match(lines, /Gas back    0\.00014 ETH/)
   assert.match(lines, /Sandbox     disposed/)
 })
@@ -113,10 +114,13 @@ test('persists private atomic JSON and reads recent receipts', async () => {
     assert.equal((await stat(firstPath)).mode & 0o777, 0o600)
     assert.equal((await stat(join(dataDirectory, 'sessions'))).mode & 0o777, 0o700)
     assert.deepEqual(await readSessionReceipt(SESSION_ID, { dataDirectory }), first.receipt)
+    assert.deepEqual(await readSessionReceipt(SESSION_ID.slice(0, 8), { dataDirectory }), first.receipt)
     const receipts = await listSessionReceipts({ dataDirectory })
     assert.deepEqual(receipts.map((receipt) => receipt.sessionId), [SECOND_SESSION_ID, SESSION_ID])
-    assert.match(renderHistory(receipts)[2], new RegExp(SECOND_SESSION_ID))
-    assert.match(renderHistory(receipts)[2], /failed.*opencode/)
+    assert.match(renderHistory(receipts)[2], /Session ID\s+Started\s+Spent\s+Status\s+Command/)
+    assert.match(renderHistory(receipts)[3], /^22222222\s+/)
+    assert.doesNotMatch(renderHistory(receipts).join('\n'), new RegExp(SECOND_SESSION_ID))
+    assert.match(renderHistory(receipts)[3], /0\.00 USDT\s+failed\s+opencode/)
   } finally {
     await rm(dataDirectory, { recursive: true, force: true })
   }
@@ -133,4 +137,10 @@ test('resolves a Ration-owned platform data directory', () => {
 
 test('rejects path traversal in detailed history ids', async () => {
   await assert.rejects(readSessionReceipt('../secrets', { dataDirectory: '/tmp/ration' }), /Invalid session id/)
+})
+
+test('requires full session ids for persisted records', async () => {
+  const value = session().receipt
+  value.sessionId = SESSION_ID.slice(0, 8)
+  await assert.rejects(persistSessionReceipt(value, { dataDirectory: '/tmp/ration' }), /Invalid session id/)
 })

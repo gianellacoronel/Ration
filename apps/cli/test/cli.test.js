@@ -416,6 +416,8 @@ test('run reports a confirmed 0.05 USDT payment and sweeps the remaining 0.45 be
   assert.equal(logs.includes('Spent       0.05 USDT'), true)
   assert.equal(logs.includes('Returned    0.45 USDT'), true)
   assert.equal(logs.includes('Sandbox     disposed'), true)
+  assert.equal(logs.some((line) => /^Session ID  [0-9a-f]{8}$/.test(line)), true)
+  assert.equal(logs.some((line) => line.startsWith('Receipt')), false)
 })
 
 test('run reports the demo acceptance totals and preserves cleanup order', async () => {
@@ -774,7 +776,9 @@ test('history lists recent sessions and prints one detailed JSON receipt', async
     listSessionReceipts: async () => [receipt]
   }), 0)
   assert.match(logs.join('\n'), /Recent sessions/)
-  assert.match(logs.join('\n'), /0\.07 USDT spent.*disposed.*codex/)
+  assert.match(logs.join('\n'), /Session ID\s+Started\s+Spent\s+Status\s+Command/)
+  assert.match(logs.join('\n'), /11111111\s+2026-08-23T12:00:00\.000Z\s+0\.07 USDT\s+disposed\s+codex/)
+  assert.doesNotMatch(logs.join('\n'), /11111111-1111-4111-8111-111111111111/)
 
   logs.length = 0
   assert.equal(await main(['history', receipt.sessionId], {

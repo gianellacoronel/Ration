@@ -27,6 +27,8 @@ export async function historyCommand (args, options, output) {
       output.error(`Session not found: ${args[1]}`)
     } else if (error?.message === 'Invalid session id.') {
       output.error('Invalid session id.')
+    } else if (error?.message === 'Ambiguous session id.') {
+      output.error('Ambiguous session id. Use the full session id.')
     } else {
       output.error('Could not read Ration session history.')
     }

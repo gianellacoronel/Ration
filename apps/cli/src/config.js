@@ -4,7 +4,7 @@ Commands:
   setup                 Create or recover the Ration treasury
   status                Show the treasury address and balance
   run --budget <n> ...  Run a command in an ephemeral sandbox
-  history [session-id]  Show recent sessions or one receipt
+  history [session-id]  Show recent sessions or one session
   help                  Show this help
 
 Getting started:

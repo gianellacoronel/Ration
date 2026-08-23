@@ -192,8 +192,9 @@ ration history
 ration history <session-id>
 ```
 
-`ration history` lists the 20 most recent sessions. The detailed command prints
-the persisted JSON receipt. On macOS receipts live under
+`ration history` lists the 20 most recent sessions using short session IDs. Pass
+a short or full session ID to the detailed command to print the persisted JSON
+receipt. On macOS receipts live under
 `~/Library/Application Support/Ration/sessions`; on XDG systems they live under
 `$XDG_DATA_HOME/ration/sessions` or `~/.local/share/ration/sessions`. Set
 `RATION_DATA_HOME` to override Ration's data directory. Receipt directories and

@@ -8,6 +8,7 @@ import { formatEthBaseUnits, formatUsdtBaseUnits } from './domain.js'
 const RECEIPT_SCHEMA_VERSION = 1
 const HISTORY_LIMIT = 20
 const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const SHORT_SESSION_ID_PATTERN = /^[0-9a-f]{8}$/i
 
 function timestamp (now) {
   return (now?.() ?? new Date()).toISOString()
@@ -120,11 +121,13 @@ function receiptDirectory (options) {
 }
 
 function validateSessionId (sessionId) {
-  if (!SESSION_ID_PATTERN.test(sessionId)) throw new Error('Invalid session id.')
+  if (!SESSION_ID_PATTERN.test(sessionId) && !SHORT_SESSION_ID_PATTERN.test(sessionId)) {
+    throw new Error('Invalid session id.')
+  }
 }
 
 export async function persistSessionReceipt (receipt, options = {}) {
-  validateSessionId(receipt.sessionId)
+  if (!SESSION_ID_PATTERN.test(receipt.sessionId)) throw new Error('Invalid session id.')
   const directory = receiptDirectory(options)
   const path = join(directory, `${receipt.sessionId}.json`)
   const temporaryPath = join(directory, `.${receipt.sessionId}.${(options.randomUUID ?? randomUUID)()}.tmp`)
@@ -160,7 +163,23 @@ export async function persistSessionReceipt (receipt, options = {}) {
 export async function readSessionReceipt (sessionId, options = {}) {
   validateSessionId(sessionId)
   const read = options.readFileImpl ?? readFile
-  const contents = await read(join(receiptDirectory(options), `${sessionId}.json`), 'utf8')
+  const directory = receiptDirectory(options)
+  let resolvedSessionId = sessionId
+  if (SHORT_SESSION_ID_PATTERN.test(sessionId)) {
+    const readDirectory = options.readdirImpl ?? readdir
+    const entries = await readDirectory(directory, { withFileTypes: true })
+    const matches = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.json') &&
+      SESSION_ID_PATTERN.test(entry.name.slice(0, -5)) &&
+      entry.name.toLowerCase().startsWith(`${sessionId.toLowerCase()}-`))
+    if (matches.length === 0) {
+      const error = new Error(`Session not found: ${sessionId}`)
+      error.code = 'ENOENT'
+      throw error
+    }
+    if (matches.length > 1) throw new Error('Ambiguous session id.')
+    resolvedSessionId = matches[0].name.slice(0, -5)
+  }
+  const contents = await read(join(directory, `${resolvedSessionId}.json`), 'utf8')
   return JSON.parse(contents)
 }
 
@@ -200,6 +219,20 @@ function shortAddress (address) {
   return `${address.slice(0, 8)}...${address.slice(-4)}`
 }
 
+export function shortSessionId (sessionId) {
+  return sessionId.slice(0, 8)
+}
+
+function renderTable (headers, rows, indent = '') {
+  const widths = headers.map((header, index) => Math.max(
+    header.length,
+    ...rows.map((row) => row[index].length)
+  ))
+  return [headers, ...rows].map((row) => `${indent}${row
+    .map((value, index) => index === row.length - 1 ? value : value.padEnd(widths[index]))
+    .join('  ')}`)
+}
+
 export function renderSessionSummary (receipt) {
   const lines = [
     'Session complete',
@@ -209,14 +242,13 @@ export function renderSessionSummary (receipt) {
     `Returned    ${formatUsdtBaseUnits(receipt.usdtReturnedToTreasuryBaseUnits)}`
   ]
   if (receipt.activity.length > 0) {
-    lines.push('', 'Activity')
-    for (const activity of receipt.activity) {
+    const rows = receipt.activity.map((activity) => {
       const label = activity.type === 'resource_purchase'
         ? activity.resource
         : shortAddress(activity.recipientAddress)
-      const suffix = activity.status === 'confirmed' ? '' : ` (${activity.status})`
-      lines.push(`  -${formatUsdtBaseUnits(activity.amountBaseUnits).padEnd(12)} ${label}${suffix}`)
-    }
+      return [`-${formatUsdtBaseUnits(activity.amountBaseUnits)}`, label, activity.status]
+    })
+    lines.push('', 'Activity', ...renderTable(['Amount', 'Resource / recipient', 'Status'], rows, '  '))
   }
   lines.push('')
   lines.push(`Gas back    ${formatEthBaseUnits(receipt.ethReturnedToTreasuryWei)}`)
@@ -226,12 +258,16 @@ export function renderSessionSummary (receipt) {
 
 export function renderHistory (receipts) {
   if (receipts.length === 0) return ['No Ration sessions found.']
+  const rows = receipts.map((receipt) => [
+    shortSessionId(receipt.sessionId),
+    receipt.startedAt,
+    formatUsdtBaseUnits(receipt.totalUsdtSpentBaseUnits),
+    receipt.sandboxDisposalStatus,
+    receipt.childCommand?.executable ?? 'unknown'
+  ])
   return [
     'Recent sessions',
     '',
-    ...receipts.map((receipt) => {
-      const command = receipt.childCommand?.executable ?? 'unknown'
-      return `${receipt.sessionId}  ${receipt.startedAt}  ${formatUsdtBaseUnits(receipt.totalUsdtSpentBaseUnits)} spent  ${receipt.sandboxDisposalStatus}  ${command}`
-    })
+    ...renderTable(['Session ID', 'Started', 'Spent', 'Status', 'Command'], rows)
   ]
 }

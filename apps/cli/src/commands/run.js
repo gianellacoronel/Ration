@@ -22,7 +22,8 @@ import {
   createSessionReceipt,
   finalizeSessionReceipt,
   persistSessionReceipt,
-  renderSessionSummary
+  renderSessionSummary,
+  shortSessionId
 } from '../session.js'
 import {
   runWdkGetAddress,
@@ -461,9 +462,9 @@ export async function runCommand (args, options, output) {
     }
     try {
       await persistReceipt(finalizedReceipt, options)
-      if (commandAttempted) output.log(`Receipt     ${finalizedReceipt.sessionId}`)
+      if (commandAttempted) output.log(`Session ID  ${shortSessionId(finalizedReceipt.sessionId)}`)
     } catch {
-      output.error('The structured session receipt could not be persisted.')
+      output.error('The session record could not be persisted.')
       exitCode = 1
     }
   }

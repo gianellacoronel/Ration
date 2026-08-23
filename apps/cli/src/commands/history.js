@@ -1,7 +1,8 @@
 import {
   listSessionReceipts,
   readSessionReceipt,
-  renderHistory
+  renderHistory,
+  renderSessionDetails
 } from '../session.js'
 
 export async function historyCommand (args, options, output) {
@@ -14,7 +15,7 @@ export async function historyCommand (args, options, output) {
     if (args.length === 2) {
       const readReceipt = options.readSessionReceipt ?? readSessionReceipt
       const receipt = await readReceipt(args[1], options)
-      output.log(JSON.stringify(receipt, null, 2))
+      for (const line of renderSessionDetails(receipt)) output.log(line)
       return 0
     }
 

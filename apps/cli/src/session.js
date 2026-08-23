@@ -236,6 +236,11 @@ function shortAddress (address) {
   return `${address.slice(0, 8)}...${address.slice(-4)}`
 }
 
+function shortHash (hash) {
+  if (typeof hash !== 'string' || hash.length < 24) return hash ?? 'unknown'
+  return `${hash.slice(0, 10)}...${hash.slice(-8)}`
+}
+
 export function shortSessionId (sessionId) {
   return sessionId.slice(0, 8)
 }
@@ -248,6 +253,20 @@ function renderTable (headers, rows, indent = '') {
   return [headers, ...rows].map((row) => `${indent}${row
     .map((value, index) => index === row.length - 1 ? value : value.padEnd(widths[index]))
     .join('  ')}`)
+}
+
+function childSandboxes (receipt) {
+  return (receipt.sandboxTree?.nodes ?? []).filter((node) => node.parentId !== null)
+}
+
+function childStatus (child) {
+  return child.disposalStatus === 'disposed'
+    ? `${child.status} / disposed`
+    : child.status ?? 'unknown'
+}
+
+function amountOrUnknown (value, formatter) {
+  return value === null || value === undefined ? 'unknown' : formatter(value)
 }
 
 export function renderSessionSummary (receipt) {
@@ -267,9 +286,104 @@ export function renderSessionSummary (receipt) {
     })
     lines.push('', 'Activity', ...renderTable(['Amount', 'Resource / recipient', 'Status'], rows, '  '))
   }
+  const children = childSandboxes(receipt)
+  if (children.length > 0) {
+    const rows = children.map((child) => [
+      child.name,
+      shortAddress(child.address),
+      formatUsdtBaseUnits(child.delegatedBudgetBaseUnits),
+      formatUsdtBaseUnits(child.usdtReturnedToParentBaseUnits ?? 0),
+      childStatus(child)
+    ])
+    lines.push('', 'Delegated sandboxes',
+      ...renderTable(['Child', 'Address', 'Budget', 'Returned', 'Status'], rows, '  '))
+  }
   lines.push('')
   lines.push(`Gas back    ${formatEthBaseUnits(receipt.ethReturnedToTreasuryWei)}`)
   lines.push(`Sandbox     ${receipt.sandboxDisposalStatus === 'disposed' ? 'disposed' : receipt.sandboxDisposalStatus}`)
+  return lines
+}
+
+export function renderSessionDetails (receipt) {
+  const lines = [
+    `Ration session ${shortSessionId(receipt.sessionId)}`,
+    '',
+    `Started     ${receipt.startedAt ?? 'unknown'}`,
+    `Ended       ${receipt.endedAt ?? 'unknown'}`,
+    `Command     ${receipt.childCommand?.executable ?? 'unknown'}`,
+    `Status      ${receipt.financialSession?.status ?? receipt.sandboxDisposalStatus ?? 'unknown'}`,
+    '',
+    'Funds',
+    `  Budget       ${amountOrUnknown(receipt.initialUsdtBudgetBaseUnits, formatUsdtBaseUnits)}`,
+    `  Spent        ${amountOrUnknown(receipt.totalUsdtSpentBaseUnits, formatUsdtBaseUnits)}`,
+    `  Returned     ${amountOrUnknown(receipt.usdtReturnedToTreasuryBaseUnits, formatUsdtBaseUnits)}`,
+    `  Gas returned ${amountOrUnknown(receipt.ethReturnedToTreasuryWei, formatEthBaseUnits)}`,
+    `  Unrecovered  ${amountOrUnknown(receipt.unrecoveredUsdtBaseUnits, formatUsdtBaseUnits)}`,
+    '',
+    'Root sandbox',
+    `  Address      ${receipt.sandboxAddress ?? 'unknown'}`,
+    `  Treasury     ${receipt.treasuryAddress ?? 'unknown'}`,
+    `  Disposal     ${receipt.sandboxDisposalStatus ?? 'unknown'}`
+  ]
+
+  const children = childSandboxes(receipt)
+  if (children.length > 0) {
+    lines.push('', 'Delegated sandboxes')
+    for (const child of children) {
+      lines.push(
+        `  ${child.name}`,
+        `    Address       ${child.address}`,
+        `    Parent        ${child.parentId}`,
+        `    Budget        ${formatUsdtBaseUnits(child.delegatedBudgetBaseUnits)}`,
+        `    USDT returned ${formatUsdtBaseUnits(child.usdtReturnedToParentBaseUnits ?? 0)}`,
+        `    Gas returned  ${formatEthBaseUnits(child.ethReturnedToParentWei ?? 0)}`,
+        `    Status        ${childStatus(child)}`
+      )
+    }
+  } else {
+    lines.push('', 'Delegated sandboxes', '  None')
+  }
+
+  if ((receipt.activity ?? []).length > 0) {
+    const rows = receipt.activity.map((activity) => [
+      activity.type === 'resource_purchase' ? activity.resource : shortAddress(activity.recipientAddress),
+      formatUsdtBaseUnits(activity.amountBaseUnits),
+      activity.status
+    ])
+    lines.push('', 'Activity', ...renderTable(['Resource / recipient', 'Amount', 'Status'], rows, '  '))
+  } else {
+    lines.push('', 'Activity', '  None')
+  }
+
+  const transactions = []
+  const addTransaction = (label, transaction) => {
+    if (transaction?.transactionHash) {
+      transactions.push([label, shortHash(transaction.transactionHash), transaction.status ?? 'unknown'])
+    }
+  }
+  addTransaction('Root gas funding', receipt.fundingTransactions?.eth)
+  addTransaction('Root USDT funding', receipt.fundingTransactions?.usdt)
+  for (const child of children) {
+    addTransaction(`${child.name} gas funding`, child.transactions?.funding?.eth)
+    addTransaction(`${child.name} USDT funding`, child.transactions?.funding?.usdt)
+    addTransaction(`${child.name} USDT return`, child.transactions?.returns?.usdt)
+    for (const transaction of child.transactions?.returns?.eth ?? []) {
+      addTransaction(`${child.name} gas return`, transaction)
+    }
+  }
+  addTransaction('Root USDT return', receipt.returnTransactions?.usdt)
+  for (const transaction of receipt.returnTransactions?.eth ?? []) {
+    addTransaction('Root gas return', transaction)
+  }
+  if (transactions.length > 0) {
+    lines.push('', 'Transactions (abbreviated)',
+      ...renderTable(['Purpose', 'Hash', 'Status'], transactions, '  '))
+  }
+
+  if ((receipt.cleanup?.errors ?? []).length > 0) {
+    lines.push('', 'Cleanup warnings', ...receipt.cleanup.errors.map((error) =>
+      `  ${error.stage}: ${error.message}`))
+  }
   return lines
 }
 

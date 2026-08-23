@@ -409,6 +409,7 @@ test('run fails closed before unlocking if standard Sepolia is replaced by accou
   let unlocked = false
   const exitCode = await cliMain(['run', '--budget', '1', '--', 'agent'], {
     output,
+    listIncompleteSessionJournals: async () => [],
     runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: false }],
     runWdkGetNetworkConfig: async () => ({ ...STANDARD_CONFIG, bundlerUrl: 'https://secret.example/key' }),
     runWdkWalletUnlock: async () => { unlocked = true }
@@ -852,15 +853,38 @@ test('run persists a complete receipt for purchases, direct transfers, returns, 
   assert.equal(typeof persisted.endedAt, 'string')
 })
 
-test('history lists recent sessions and prints one detailed JSON receipt', async () => {
+test('history lists recent sessions and prints one human-readable session report', async () => {
   const { logs, errors, output } = captureOutput()
   const receipt = {
     schemaVersion: 1,
     sessionId: '11111111-1111-4111-8111-111111111111',
     startedAt: '2026-08-23T12:00:00.000Z',
     totalUsdtSpentBaseUnits: '70000',
+    initialUsdtBudgetBaseUnits: '100000',
+    usdtReturnedToTreasuryBaseUnits: '30000',
+    ethReturnedToTreasuryWei: '10000',
+    unrecoveredUsdtBaseUnits: '0',
     sandboxDisposalStatus: 'disposed',
-    childCommand: { executable: 'codex' }
+    sandboxAddress: '0xRoot',
+    treasuryAddress: '0xTreasury',
+    childCommand: { executable: 'codex' },
+    financialSession: { status: 'complete' },
+    activity: [],
+    sandboxTree: {
+      rootId: 'root',
+      nodes: [{
+        id: 'root/1',
+        name: 'research',
+        parentId: 'root',
+        address: '0xResearch',
+        delegatedBudgetBaseUnits: '20000',
+        usdtReturnedToParentBaseUnits: '20000',
+        ethReturnedToParentWei: '5000',
+        status: 'closed',
+        disposalStatus: 'disposed',
+        transactions: { funding: {}, returns: { eth: [] } }
+      }]
+    }
   }
   assert.equal(await main(['history'], {
     output,
@@ -879,7 +903,15 @@ test('history lists recent sessions and prints one detailed JSON receipt', async
       return receipt
     }
   }), 0)
-  assert.deepEqual(JSON.parse(logs[0]), receipt)
+  const details = logs.join('\n')
+  assert.match(details, /Ration session 11111111/)
+  assert.match(details, /Funds[\s\S]*Budget\s+0\.10 USDT/)
+  assert.match(details, /Delegated sandboxes[\s\S]*research/)
+  assert.match(details, /Address\s+0xResearch/)
+  assert.match(details, /Budget\s+0\.02 USDT/)
+  assert.match(details, /USDT returned\s+0\.02 USDT/)
+  assert.match(details, /Status\s+closed \/ disposed/)
+  assert.doesNotMatch(details, /"schemaVersion"|"sandboxTree"|\{/)
   assert.deepEqual(errors, [])
 })
 

@@ -11,6 +11,7 @@ import {
   persistSessionReceipt,
   readSessionReceipt,
   renderHistory,
+  renderSessionDetails,
   renderSessionSummary,
   resolveRationDataDirectory
 } from '../src/session.js'
@@ -56,6 +57,43 @@ test('finalizes totals and renders purchases, transfers, returns, and disposal',
   value.receipt.usdtReturnedToTreasuryBaseUnits = '30000'
   value.receipt.ethReturnedToTreasuryWei = '140000000000000'
   value.receipt.sandboxDisposalStatus = 'disposed'
+  value.receipt.sandboxTree = {
+    rootId: 'root',
+    nodes: [{
+      id: 'root',
+      name: 'root',
+      parentId: null,
+      address: value.receipt.sandboxAddress,
+      status: 'disposed',
+      disposalStatus: 'disposed'
+    }, {
+      id: 'root/1',
+      name: 'research',
+      parentId: 'root',
+      address: '0xaA12ce98df280eE1d2168e14D0DD79A1Df1efc08',
+      delegatedBudgetBaseUnits: '20000',
+      usdtReturnedToParentBaseUnits: '20000',
+      ethReturnedToParentWei: '10000',
+      status: 'closed',
+      disposalStatus: 'disposed',
+      transactions: {
+        funding: {
+          eth: null,
+          usdt: {
+            transactionHash: '0xchildfund',
+            status: 'confirmed'
+          }
+        },
+        returns: {
+          usdt: {
+            transactionHash: '0xchildreturn',
+            status: 'confirmed'
+          },
+          eth: []
+        }
+      }
+    }]
+  }
   value.recordActivity({
     type: 'resource_purchase',
     resource: 'deep-research',
@@ -89,6 +127,17 @@ test('finalizes totals and renders purchases, transfers, returns, and disposal',
   assert.match(lines, /-0\.05 USDT\s+0x5e4700\.\.\.f214\s+confirmed/)
   assert.match(lines, /Gas back    0\.00014 ETH/)
   assert.match(lines, /Sandbox     disposed/)
+  assert.match(lines, /Delegated sandboxes/)
+  assert.match(lines, /research\s+0xaA12ce\.\.\.fc08\s+0\.02 USDT\s+0\.02 USDT\s+closed \/ disposed/)
+
+  const details = renderSessionDetails(receipt).join('\n')
+  assert.match(details, /Ration session 11111111/)
+  assert.match(details, /Delegated sandboxes[\s\S]*research/)
+  assert.match(details, /Address\s+0xaA12ce98df280eE1d2168e14D0DD79A1Df1efc08/)
+  assert.match(details, /Budget\s+0\.02 USDT/)
+  assert.match(details, /USDT returned\s+0\.02 USDT/)
+  assert.match(details, /research USDT funding\s+0xchildfund\s+confirmed/)
+  assert.doesNotMatch(details, /schemaVersion|amountBaseUnits|transactions":/)
 })
 
 test('persists private atomic JSON and reads recent receipts', async () => {

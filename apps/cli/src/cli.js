@@ -21,6 +21,7 @@ export {
   persistSessionReceipt,
   readSessionReceipt,
   renderHistory,
+  renderSessionDetails,
   renderSessionSummary,
   resolveRationDataDirectory
 } from './session.js'

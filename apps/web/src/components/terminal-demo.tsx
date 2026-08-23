@@ -346,7 +346,7 @@ export function TerminalDemo() {
         </div>
       </div>
 
-      <div className="min-h-[22rem] overflow-x-auto p-4 mobile:min-h-[25rem] mobile:p-6 desktop:min-h-[28rem] desktop:p-7">
+      <div className="min-h-[22rem] overflow-x-auto p-4 mobile:min-h-[25rem] mobile:p-6 desktop:min-h-[28rem] desktop:p-7 wide:min-h-[20rem] wide:p-6">
         <div
           className="min-w-max font-mono text-[0.75rem] leading-6 mobile:text-[0.8125rem] mobile:leading-7"
           role="log"

@@ -19,6 +19,12 @@ import {
   waitForSandboxGas
 } from '../sandbox.js'
 import {
+  createSessionLedger,
+  persistSessionLog,
+  renderSessionActivity,
+  summarizeSessionActivity
+} from '../session.js'
+import {
   runWdkGetAddress,
   runWdkGetEthBalance,
   runWdkGetUsdtBalance,
@@ -87,6 +93,7 @@ export async function runCommand (args, options, output) {
   const transfer = options.runWdkTransfer ?? runWdkTransfer
   const confirm = options.confirmTransfer ?? (() => confirmTransfer({ signal: options.signal }))
   const execute = options.runRequestedCommand ?? runRequestedCommand
+  const ledger = (options.createSessionLedger ?? createSessionLedger)()
   let sandbox
   let treasuryAddress
   let initialUsdt
@@ -196,7 +203,8 @@ export async function runCommand (args, options, output) {
           output.log(`Sandbox   ${sandbox.address}`)
           output.log(`Budget    ${formatUsdtBaseUnits(initialUsdt)}`)
           output.log('Gas       Sepolia ETH infrastructure reserve')
-          mcp = await sandbox.openMcp(options.mcpOptions)
+          ledger.record({ kind: 'budget', amountBaseUnits: initialUsdt.toString() })
+          mcp = await sandbox.openMcp({ ...(options.mcpOptions ?? {}), session: ledger })
           output.log('Access    Ration MCP (catalog, purchase, balances, Sepolia USDT transfer)')
           output.log('')
           output.log(`Starting ${input.command}...`)
@@ -275,6 +283,7 @@ export async function runCommand (args, options, output) {
                 () => sandbox.sweepUsdt(treasuryAddress))
             : await sandbox.sweepUsdt(treasuryAddress)
           returnedUsdt = sweep.amount
+          ledger.record({ kind: 'returned', amountBaseUnits: returnedUsdt.toString() })
           if (returnedUsdt === 0n || (sweep.remaining ?? 0n) > 0n) {
             output.error(`The remaining ${formatUsdtBaseUnits(finalUsdt)} could not be swept to the treasury.`)
             exitCode = 1
@@ -298,6 +307,7 @@ export async function runCommand (args, options, output) {
               () => sandbox.sweepEth(treasuryAddress))
           : await sandbox.sweepEth(treasuryAddress)
         returnedEth = sweep.amount
+        ledger.record({ kind: 'gasReturned', amountWei: returnedEth.toString() })
         if (commandAttempted) output.log('  Sepolia ETH recovery complete.')
       } catch {
         output.error('Security cleanup failed: recoverable sandbox ETH could not be returned to the treasury.')
@@ -309,14 +319,39 @@ export async function runCommand (args, options, output) {
       try {
         sandbox.dispose()
         sandboxDisposed = true
+        ledger.record({ kind: 'disposed' })
         if (commandAttempted) output.log('  Sandbox disposed.')
       } catch {
+        ledger.record({ kind: 'disposalFailed' })
         output.error('Security cleanup failed: the ephemeral WDK sandbox could not be disposed.')
         exitCode = 1
       }
     }
 
     if (commandAttempted) {
+      const summary = summarizeSessionActivity(ledger.events)
+      output.log('')
+      output.log('Session activity')
+      for (const line of renderSessionActivity(summary)) output.log(line)
+      try {
+        const logPath = await persistSessionLog({
+          command: [input.command, ...input.commandArgs],
+          budgetText: input.budgetText,
+          sandboxAddress: sandbox?.address ?? null,
+          events: [...ledger.events],
+          outcome: {
+            followedInjection: summary.unsolicitedTransfers.length > 0,
+            unsolicitedBaseUnits: summary.unsolicitedTotal.toString(),
+            purchasedBaseUnits: summary.purchasedTotal.toString(),
+            returnedUsdtBaseUnits: summary.returnedUsdt.toString(),
+            returnedEthWei: summary.returnedEth.toString(),
+            disposed: summary.disposed
+          }
+        }, options)
+        output.log(`Activity log ${logPath}`)
+      } catch {
+        output.error('The session activity log could not be persisted.')
+      }
       output.log('')
       output.log('Session complete')
       output.log('')

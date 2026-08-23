@@ -41,7 +41,7 @@ async function confirmedTransaction (account, hash) {
   }
 }
 
-function confirmTokenTransfers (server, pending) {
+function confirmTokenTransfers (server, pending, onConfirmedTransfer) {
   server.wdk.registerMiddleware(CHAIN, async (account) => {
     if (account[CONFIRMED_TRANSFER]) return
 
@@ -54,7 +54,15 @@ function confirmTokenTransfers (server, pending) {
       })()
       pending.add(operation)
       try {
-        return await operation
+        const result = await operation
+        onConfirmedTransfer?.({
+          recipient: typeof options.recipient === 'string' ? options.recipient : null,
+          amountBaseUnits: options.amount !== undefined && options.amount !== null
+            ? options.amount.toString()
+            : null,
+          txHash: result.hash
+        })
+        return result
       } finally {
         pending.delete(operation)
       }
@@ -272,6 +280,12 @@ Args:
             purchaseOperations.delete(resourceId)
           }
         }
+        options.session?.record({
+          kind: 'purchase',
+          resource: resourceId,
+          amountBaseUnits: result.paidBaseUnits.toString(),
+          txHash: result.txHash ?? null
+        })
         const paidText = result.txHash
           ? ` Paid ${formatUsdtBaseUnits(result.paidBaseUnits)} with transaction ${result.txHash}.`
           : ''
@@ -393,7 +407,10 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
     .registerWallet(CHAIN, WalletManager, config)
     .registerToken(CHAIN, 'USDT', { address: USDT_ADDRESS, decimals: 6 })
     .registerTools(SANDBOX_TOOLS)
-  confirmTokenTransfers(server, pendingConfirmations)
+  const session = options.session
+  confirmTokenTransfers(server, pendingConfirmations, (transfer) => {
+    session?.record({ kind: 'transfer', ...transfer })
+  })
   const demoOrigin = resolveDemoOriginImpl(options.demoEnv ?? process.env)
   registerDemoTools(server, demoOrigin, options)
   let directory

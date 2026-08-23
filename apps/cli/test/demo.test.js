@@ -95,6 +95,7 @@ test('purchases the catalog resource with the sandbox account and retries with i
   const result = await purchaseResourceViaDemoApi({
     origin: ORIGIN,
     resourceId: 'company-intel',
+    expectedAmountBaseUnits: 30000n,
     account,
     fetchImpl: async (url, options) => {
       requests.push([url, options])
@@ -123,6 +124,23 @@ test('purchases the catalog resource with the sandbox account and retries with i
   assert.equal(requests.every(([, options]) => options.redirect === 'error'), true)
   assert.equal(requests[2][1].headers['x-payment-tx-hash'], TX_HASH)
   assert.equal(requests[3][1].headers['x-payment-tx-hash'], TX_HASH)
+})
+
+test('rejects a stale expected catalog price before requesting or paying for a resource', async () => {
+  let accountUsed = false
+  await assert.rejects(purchaseResourceViaDemoApi({
+    origin: ORIGIN,
+    resourceId: 'company-intel',
+    expectedAmountBaseUnits: 20000n,
+    account: {
+      getTokenBalance: async () => { accountUsed = true },
+      transfer: async () => { accountUsed = true }
+    },
+    fetchImpl: async () => response(200, catalog())
+  }), (error) => error instanceof DemoPaymentError &&
+    error.code === 'resource_price_changed' &&
+    /current price.*0\.03 USDT.*not 0\.02 USDT/.test(error.message))
+  assert.equal(accountUsed, false)
 })
 
 test('rejects payment requirements that differ from the validated catalog', () => {

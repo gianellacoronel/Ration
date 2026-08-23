@@ -214,6 +214,7 @@ function formatUsdt (amountBaseUnits) {
 export async function purchaseResourceViaDemoApi ({
   origin,
   resourceId,
+  expectedAmountBaseUnits,
   account,
   fetchImpl = fetch,
   wait = sleep,
@@ -230,6 +231,12 @@ export async function purchaseResourceViaDemoApi ({
     throw new DemoPaymentError(
       `Unknown resource "${resourceId}". Available: ${catalog.resources.map((entry) => entry.id).join(', ')}.`,
       { code: 'unknown_resource' })
+  }
+  if (expectedAmountBaseUnits !== undefined &&
+      BigInt(resource.price.amountBaseUnits) !== BigInt(expectedAmountBaseUnits)) {
+    throw new DemoPaymentError(
+      `The current price for "${resourceId}" is ${resource.price.amount} USDT, not ${formatUsdt(BigInt(expectedAmountBaseUnits))} USDT. Refresh the catalog before purchasing.`,
+      { code: 'resource_price_changed' })
   }
   const resourceUrl = joinDemoResourceUrl(origin, resource.path)
 

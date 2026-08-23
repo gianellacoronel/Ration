@@ -146,7 +146,10 @@ test('serves sandbox reads and confirmed Sepolia USDT transfers without per-paym
     session
   })
   const launch = service.configureLaunch('opencode', ['run'], {
-    OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: 'test/model' })
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({
+      model: 'test/model',
+      permission: { bash: 'ask' }
+    })
   })
   const inline = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT)
   const command = inline.mcp.ration.command
@@ -170,6 +173,8 @@ test('serves sandbox reads and confirmed Sepolia USDT transfers without per-paym
       'getAddress', 'getBalance', 'getTokenBalance', 'ration_getCatalog',
       'ration_getRemainingBalance', 'ration_purchaseResource', 'transfer'
     ])
+    const purchaseTool = tools.tools.find((tool) => tool.name === 'ration_purchaseResource')
+    assert.deepEqual(purchaseTool.inputSchema.required, ['resourceId', 'amountUsdt'])
 
     const address = await client.callTool({
       name: 'getAddress',
@@ -233,7 +238,18 @@ test('serves sandbox reads and confirmed Sepolia USDT transfers without per-paym
       status: 'confirmed'
     }])
     assert.equal(inline.model, 'test/model')
+    assert.equal(inline.permission.bash, 'ask')
     assert.equal(inline.mcp.ration.type, 'local')
+    assert.deepEqual(Object.fromEntries(Object.entries(inline.permission)
+      .filter(([name]) => name.startsWith('ration_'))), {
+      ration_getAddress: 'allow',
+      ration_getBalance: 'allow',
+      ration_getTokenBalance: 'allow',
+      ration_transfer: 'allow',
+      ration_ration_getRemainingBalance: 'allow',
+      ration_ration_getCatalog: 'allow',
+      ration_ration_purchaseResource: 'allow'
+    })
     assert.doesNotMatch(launch.env.OPENCODE_CONFIG_CONTENT, /rationtreasury/)
     assert.equal(launch.env.OPENCODE_CONFIG_CONTENT.includes(Buffer.from(seed).toString('hex')), false)
   } finally {
@@ -405,7 +421,7 @@ test('closing waits for an autonomous transfer and blocks another broadcast', as
   }
 })
 
-test('catalog discovery and consecutive purchases need no manual payment details or elicitation', async () => {
+test('catalog discovery and consecutive purchases use explicit validated prices without elicitation', async () => {
   const seed = new Uint8Array(64).fill(7)
   const events = []
   const session = createSessionReceipt({
@@ -446,18 +462,18 @@ test('catalog discovery and consecutive purchases need no manual payment details
     })
     const purchased = await client.callTool({
       name: 'ration_purchaseResource',
-      arguments: { resourceId: 'deep-research' }
+      arguments: { resourceId: 'deep-research', amountUsdt: '0.06' }
     })
     const secondPurchase = await client.callTool({
       name: 'ration_purchaseResource',
-      arguments: { resourceId: 'market-snapshot' }
+      arguments: { resourceId: 'market-snapshot', amountUsdt: '0.01' }
     })
     const parallelPurchases = await Promise.all([
       client.callTool({
-        name: 'ration_purchaseResource', arguments: { resourceId: 'company-intel' }
+        name: 'ration_purchaseResource', arguments: { resourceId: 'company-intel', amountUsdt: '0.03' }
       }),
       client.callTool({
-        name: 'ration_purchaseResource', arguments: { resourceId: 'company-intel' }
+        name: 'ration_purchaseResource', arguments: { resourceId: 'company-intel', amountUsdt: '0.03' }
       })
     ])
     const balanceAfter = await client.callTool({
@@ -530,6 +546,7 @@ test('configures Codex transiently without putting wallet credentials in argumen
     const enabledTools = launch.args.find((arg) => arg.startsWith('mcp_servers.ration.enabled_tools='))
     assert.match(joined, /mcp_servers\.ration\.command/)
     assert.equal(enabledTools, 'mcp_servers.ration.enabled_tools=["getAddress","getBalance","getTokenBalance","transfer","ration_getRemainingBalance","ration_getCatalog","ration_purchaseResource"]')
+    assert.equal(launch.args.includes('mcp_servers.ration.default_tools_approval_mode="approve"'), true)
     assert.equal(launch.args.includes('mcp_servers.ration.tool_timeout_sec=240'), true)
     assert.doesNotMatch(joined, /rationtreasury/)
     assert.equal(joined.includes(Buffer.from(seed).toString('hex')), false)

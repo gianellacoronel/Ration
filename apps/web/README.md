@@ -20,14 +20,15 @@ than the `0.10 USDT` acceptance sandbox.
 ### Flow
 
 1. The agent reads `ration_getCatalog` and `ration_getRemainingBalance`.
-2. The agent calls `ration_purchaseResource` with any listed resource id it
-   chooses. Ration requests that fixed resource route and receives `402 Payment
-   Required` with machine-readable seller, token, amount, network, and retry
-   instructions.
+2. The agent calls `ration_purchaseResource` with a listed resource id and its
+   catalog price. Ration requests that fixed resource route and receives `402
+   Payment Required` with machine-readable seller, token, amount, network, and
+   retry instructions.
 3. Ration validates those requirements against the catalog, checks the
    ephemeral sandbox's real USDT balance, pays from that same EOA, and waits for
-   confirmation. No recipient, token, amount, network, URL, or transaction
-   details are supplied by the agent.
+   confirmation. The agent-supplied amount must exactly match the catalog; no
+   recipient, token, network, URL, or transaction details are supplied by the
+   agent.
 4. Ration retries the selected fixed route with the confirmed hash in the
    `x-payment-tx-hash` header and returns the unlocked payload to the agent.
 5. The server verifies on-chain, independently of anything the client claims,

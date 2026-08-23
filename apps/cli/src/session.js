@@ -38,6 +38,7 @@ export function createSessionReceipt (input, options = {}) {
     initialUsdtBudgetBaseUnits: String(input.budgetBaseUnits),
     initialGasReserveWei: null,
     fundingTransactions: { eth: null, usdt: null },
+    sandboxTree: { rootId: 'root', nodes: [] },
     activity: [],
     resourcePurchaseTotalBaseUnits: '0',
     directUsdtTransferTotalBaseUnits: '0',
@@ -82,6 +83,9 @@ export function createSessionReceipt (input, options = {}) {
     },
     setActivityListener (listener) {
       activityListener = listener
+    },
+    setSandboxTree (tree) {
+      receipt.sandboxTree = structuredClone(tree)
     },
     flushActivity () {
       return activityListener?.()

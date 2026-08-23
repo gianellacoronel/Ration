@@ -101,12 +101,57 @@ test('persists an authenticated non-secret atomic journal and detects funded ses
   const journalKey = recovery.journalKey
   try {
     const journal = fundedJournal()
+    journal.sandboxTree = {
+      rootId: 'root',
+      nodes: [{
+        id: 'root',
+        name: 'root',
+        parentId: null,
+        address: '0xEphemeral',
+        status: 'open',
+        disposalStatus: 'active'
+      }, {
+        id: 'root/1',
+        name: 'research',
+        parentId: 'root',
+        address: '0xResearch',
+        delegatedBudgetBaseUnits: '20000',
+        gasReserveWei: '61000',
+        status: 'open',
+        disposalStatus: 'active',
+        seed: 'never-persist-this',
+        transactions: {
+          funding: {
+            eth: {
+              asset: 'ETH',
+              amountBaseUnits: '61000',
+              recipientAddress: '0xResearch',
+              transactionHash: '0xchildeth',
+              feeWei: '21000',
+              status: 'confirmed'
+            },
+            usdt: {
+              asset: 'USDT',
+              amountBaseUnits: '20000',
+              recipientAddress: '0xResearch',
+              transactionHash: '0xchildusdt',
+              feeWei: '40000',
+              status: 'confirmed'
+            }
+          },
+          returns: { usdt: null, eth: [] }
+        }
+      }]
+    }
     const path = await persistSessionJournal(journal, journalKey, { dataDirectory })
     const serialized = await readFile(path, 'utf8')
     assert.doesNotMatch(serialized, /seed|private.?key|passphrase|recovery.?root/i)
     assert.match(serialized, /hmac-sha256/)
     const stored = await readSessionJournal(SESSION_ID, { dataDirectory })
-    assert.equal(verifySessionJournal(stored, journalKey).lifecycle.state, 'running')
+    const verified = verifySessionJournal(stored, journalKey)
+    assert.equal(verified.lifecycle.state, 'running')
+    assert.equal(verified.sandboxTree.nodes[1].parentId, 'root')
+    assert.equal(verified.sandboxTree.nodes[1].transactions.funding.usdt.status, 'confirmed')
     assert.deepEqual((await listIncompleteSessionJournals({ dataDirectory, recoveryRoot }))
       .map((value) => value.sessionId), [SESSION_ID])
 

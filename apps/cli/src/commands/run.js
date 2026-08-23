@@ -242,7 +242,8 @@ export async function runCommand (args, options, output) {
     const gasReserve = lifecycleGasReserve(
       estimatedSweepFee,
       lifecycleGas.nativeFee,
-      MAX_DEMO_RESOURCE_PURCHASES
+      MAX_DEMO_RESOURCE_PURCHASES + 2,
+      3
     )
     receipt.initialGasReserveWei = gasReserve.toString()
     const gasInput = {

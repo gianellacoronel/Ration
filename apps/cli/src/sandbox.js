@@ -5,6 +5,7 @@ import WalletManagerEvm from '@tetherto/wdk-wallet-evm'
 
 import { USDT_ADDRESS } from './config.js'
 import { createSandboxMcpService } from './mcp.js'
+import { createSandboxHierarchy } from './sandbox-hierarchy.js'
 
 const FUNDING_TIMEOUT_MS = 180000
 const CHAIN_POLL_MS = 1000
@@ -16,8 +17,9 @@ function sleep (ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export function lifecycleGasReserve (tokenFee, nativeFee, paymentCount = 1) {
-  const fee = tokenFee * (BigInt(paymentCount) + 1n) + nativeFee
+export function lifecycleGasReserve (tokenFee, nativeFee, paymentCount = 1, nativeTransferCount = 1) {
+  const fee = tokenFee * (BigInt(paymentCount) + 1n) +
+    nativeFee * BigInt(nativeTransferCount)
   return (fee * GAS_RESERVE_NUMERATOR + GAS_RESERVE_DENOMINATOR - 1n) /
     GAS_RESERVE_DENOMINATOR
 }
@@ -45,13 +47,26 @@ export async function createEphemeralSandbox (config, options = {}) {
   const Wdk = options.WDK ?? WDK
   let wdk
   let account
+  let hierarchy
   let disposed = false
+  let financialOperation = Promise.resolve()
+
+  const runFinancial = (operation) => {
+    const result = financialOperation.then(operation, operation)
+    financialOperation = result.catch(() => {})
+    return result
+  }
 
   const dispose = () => {
     if (disposed) return
     disposed = true
 
     let disposalError
+    try {
+      hierarchy?.dispose()
+    } catch (error) {
+      disposalError = error
+    }
     try {
       account?.dispose()
     } catch (error) {
@@ -73,18 +88,34 @@ export async function createEphemeralSandbox (config, options = {}) {
     wdk = new Wdk(seed).registerWallet('sepolia', WalletManager, config)
     account = await wdk.getAccount('sepolia', 0)
     const address = await account.getAddress()
+    hierarchy = createSandboxHierarchy({
+      rootSeed: seed,
+      rootAccount: account,
+      rootAddress: address,
+      config,
+      WDK: Wdk,
+      WalletManager,
+      confirmedTransaction,
+      runFinancial,
+      now: () => new Date().toISOString()
+    })
 
     return {
       address,
       getUsdtBalance: () => account.getTokenBalance(USDT_ADDRESS),
       getEthBalance: () => account.getBalance(),
       waitForTransaction: (hash) => confirmedTransaction(account, hash),
-      openMcp: (mcpOptions) => createSandboxMcpService(
+      openMcp: (mcpOptions = {}) => createSandboxMcpService(
         seed,
         config,
         address,
-        mcpOptions
+        { ...mcpOptions, hierarchy, runFinancial }
       ),
+      delegateBudget: (input, hooks) => hierarchy.delegate(input, hooks),
+      closeChild: (name, hooks) => hierarchy.close(name, hooks),
+      closeChildren: (hooks) => hierarchy.closeAll(hooks),
+      restoreHierarchy: (tree) => hierarchy.restore(tree),
+      getSandboxTree: () => hierarchy.snapshot(),
       async quoteLifecycleGas (recipient) {
         const tokenQuote = await account.quoteTransfer({
           token: USDT_ADDRESS,

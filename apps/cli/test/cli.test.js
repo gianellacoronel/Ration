@@ -437,7 +437,7 @@ test('run reports a confirmed 0.05 USDT payment and sweeps the remaining 0.45 be
   assert.equal(logs.includes('Budget        0.50 USDT'), true)
   assert.equal(logs.some((line) => line.includes('Gas reserve') && line.includes('infrastructure')), true)
   assert.deepEqual(events.find((event) => event[0] === 'gas-confirmed'), [
-    'gas-confirmed', 401250n
+    'gas-confirmed', 578750n
   ])
   assert.equal(logs.some((line) => /Network fee.*USDT|Total.*USDT/.test(line)), false)
   assert.equal(logs.includes('Spent       0.05 USDT'), true)
@@ -833,7 +833,7 @@ test('run persists a complete receipt for purchases, direct transfers, returns, 
   assert.equal(persisted.sandboxAddress, '0xephemeral')
   assert.equal(persisted.treasuryAddress, '0xtreasury')
   assert.equal(persisted.initialUsdtBudgetBaseUnits, '100000')
-  assert.equal(persisted.initialGasReserveWei, '401250')
+  assert.equal(persisted.initialGasReserveWei, '578750')
   assert.equal(persisted.totalUsdtSpentBaseUnits, '70000')
   assert.equal(persisted.resourcePurchaseTotalBaseUnits, '20000')
   assert.equal(persisted.directUsdtTransferTotalBaseUnits, '50000')

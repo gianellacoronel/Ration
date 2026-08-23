@@ -170,8 +170,50 @@ function allowlistedObject (value, fields) {
     .map((field) => [field, value[field]]))
 }
 
-function journalPayload (journal) {
+function journalSandboxTree (tree) {
+  if (!tree) return undefined
   return {
+    rootId: 'root',
+    nodes: (tree.nodes ?? []).map((node) => ({
+      ...allowlistedObject(node, [
+        'id', 'name', 'parentId', 'address', 'delegatedBudgetBaseUnits',
+        'gasReserveWei', 'status', 'disposalStatus', 'createdAt', 'closedAt',
+        'usdtReturnedToParentBaseUnits', 'ethReturnedToParentWei',
+        'finalUsdtBalanceBaseUnits', 'finalEthBalanceWei'
+      ]),
+      ...(node.transactions
+        ? {
+            transactions: {
+              funding: {
+                eth: allowlistedObject(node.transactions.funding?.eth, [
+                  'asset', 'amountBaseUnits', 'recipientAddress', 'transactionHash',
+                  'feeWei', 'status'
+                ]),
+                usdt: allowlistedObject(node.transactions.funding?.usdt, [
+                  'asset', 'amountBaseUnits', 'recipientAddress', 'transactionHash',
+                  'feeWei', 'status'
+                ])
+              },
+              returns: {
+                usdt: allowlistedObject(node.transactions.returns?.usdt, [
+                  'asset', 'amountBaseUnits', 'recipientAddress', 'transactionHash',
+                  'feeWei', 'status'
+                ]),
+                eth: (node.transactions.returns?.eth ?? []).map((transaction) =>
+                  allowlistedObject(transaction, [
+                    'asset', 'amountBaseUnits', 'recipientAddress', 'transactionHash',
+                    'feeWei', 'status'
+                  ]))
+              }
+            }
+          }
+        : {})
+    }))
+  }
+}
+
+function journalPayload (journal) {
+  const payload = {
     schemaVersion: JOURNAL_SCHEMA_VERSION,
     sessionId: journal.sessionId,
     network: { name: 'sepolia', chainId: 11155111 },
@@ -225,6 +267,8 @@ function journalPayload (journal) {
       'confirmedAt', 'failedAt'
     ]))
   }
+  if (journal.sandboxTree !== undefined) payload.sandboxTree = journalSandboxTree(journal.sandboxTree)
+  return payload
 }
 
 function journalMac (payload, journalKey) {
@@ -244,6 +288,7 @@ export function createSessionJournal (input, options = {}) {
     owner: input.owner ?? { pid: process.pid, startedAt: now },
     lifecycle: { state: 'created', createdAt: now, updatedAt: now },
     transactions: { funding: { eth: null, usdt: null }, returns: { usdt: null, eth: [] } },
+    sandboxTree: input.sandboxTree ?? { rootId: 'root', nodes: [] },
     activity: []
   })
 }
@@ -393,7 +438,7 @@ export async function listIncompleteSessionJournals (options = {}) {
     .map((result) => result.value)
     .filter(Boolean)
     .sort((left, right) =>
-    String(left.lifecycle.createdAt).localeCompare(String(right.lifecycle.createdAt)))
+      String(left.lifecycle.createdAt).localeCompare(String(right.lifecycle.createdAt)))
   Object.defineProperty(journals, 'invalidCount', {
     value: settled.filter((result) => result.status === 'rejected').length,
     enumerable: false

@@ -297,3 +297,98 @@ test('funding waits stop before a balance read when aborted', async () => {
   }, 1000000n, { signal: controller.signal }), (error) => error.signal === 'SIGTERM')
   assert.equal(reads, 0)
 })
+
+test('delegates a real child balance and reclaims it without exposing the parent balance', async () => {
+  const seed = new Uint8Array(64).fill(11)
+  const seeds = []
+  const events = []
+  const balances = new Map([
+    ['0xroot', { usdt: 500000n, eth: 1000000n }],
+    ['0xresearch', { usdt: 0n, eth: 0n }]
+  ])
+  let managerCount = 0
+  let transactionCount = 0
+
+  class LedgerWalletManager {
+    constructor (receivedSeed) {
+      const address = managerCount++ === 0 ? '0xroot' : '0xresearch'
+      seeds.push(receivedSeed)
+      this.account = {
+        getAddress: async () => address,
+        getTokenBalance: async () => balances.get(address).usdt,
+        getBalance: async () => balances.get(address).eth,
+        quoteTransfer: async () => ({ fee: 40000n }),
+        quoteSendTransaction: async () => ({ fee: 21000n }),
+        transfer: async ({ recipient, amount }) => {
+          const source = balances.get(address)
+          const target = balances.get(recipient)
+          assert.ok(source.usdt >= amount)
+          assert.ok(source.eth >= 30000n)
+          source.usdt -= amount
+          source.eth -= 30000n
+          target.usdt += amount
+          const hash = `0xtoken${++transactionCount}`
+          events.push(['usdt', address, recipient, amount, hash])
+          return { hash, fee: 30000n }
+        },
+        sendTransaction: async ({ to, value }) => {
+          const source = balances.get(address)
+          const target = balances.get(to)
+          assert.ok(source.eth >= value + 21000n)
+          source.eth -= value + 21000n
+          target.eth += value
+          const hash = `0xeth${++transactionCount}`
+          events.push(['eth', address, to, value, hash])
+          return { hash, fee: 21000n }
+        },
+        waitForTransaction: async () => ({ finality: 'confirmed', success: true }),
+        dispose: () => events.push(['account-disposed', address])
+      }
+    }
+
+    async getAccount () { return this.account }
+    dispose () {}
+  }
+
+  const treeUpdates = []
+  const sandbox = await createEphemeralSandbox(config, {
+    WalletManager: LedgerWalletManager,
+    seed
+  })
+
+  const child = await sandbox.delegateBudget({ name: 'research', amount: 200000n }, {
+    onChange: async (tree) => treeUpdates.push(tree)
+  })
+
+  assert.equal(child.address, '0xresearch')
+  assert.equal(child.gasReserveWei, '61000')
+  assert.deepEqual(balances.get('0xroot'), { usdt: 300000n, eth: 888000n })
+  assert.deepEqual(balances.get('0xresearch'), { usdt: 200000n, eth: 61000n })
+  assert.deepEqual(events.slice(0, 2).map((event) => event.slice(0, 4)), [
+    ['eth', '0xroot', '0xresearch', 61000n],
+    ['usdt', '0xroot', '0xresearch', 200000n]
+  ])
+  assert.notDeepEqual(seeds[0], seeds[1])
+  assert.equal(seeds[0].every((byte) => byte === 11), true)
+  assert.doesNotMatch(JSON.stringify(sandbox.getSandboxTree()), /seed|private.?key|keyPair/i)
+
+  const closed = await sandbox.closeChild('research', {
+    onChange: async (tree) => treeUpdates.push(tree)
+  })
+
+  assert.equal(closed.status, 'closed')
+  assert.equal(closed.disposalStatus, 'disposed')
+  assert.equal(closed.usdtReturnedToParentBaseUnits, '200000')
+  assert.equal(closed.ethReturnedToParentWei, '10000')
+  assert.deepEqual(balances.get('0xroot'), { usdt: 500000n, eth: 898000n })
+  assert.deepEqual(balances.get('0xresearch'), { usdt: 0n, eth: 0n })
+  assert.deepEqual(events.slice(2, 4).map((event) => event.slice(0, 4)), [
+    ['usdt', '0xresearch', '0xroot', 200000n],
+    ['eth', '0xresearch', '0xroot', 10000n]
+  ])
+  assert.equal(seeds[1].every((byte) => byte === 0), true)
+  assert.equal(treeUpdates.at(-1).nodes.find((node) => node.name === 'research').status, 'closed')
+
+  sandbox.dispose()
+  assert.equal(seed.every((byte) => byte === 0), true)
+})

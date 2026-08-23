@@ -248,7 +248,9 @@ test('serves sandbox reads and confirmed Sepolia USDT transfers without per-paym
       ration_transfer: 'allow',
       ration_ration_getRemainingBalance: 'allow',
       ration_ration_getCatalog: 'allow',
-      ration_ration_purchaseResource: 'allow'
+      ration_ration_purchaseResource: 'allow',
+      ration_ration_delegateBudget: 'allow',
+      ration_ration_closeSandbox: 'allow'
     })
     assert.doesNotMatch(launch.env.OPENCODE_CONFIG_CONTENT, /rationtreasury/)
     assert.equal(launch.env.OPENCODE_CONFIG_CONTENT.includes(Buffer.from(seed).toString('hex')), false)
@@ -309,6 +311,105 @@ test('records direct transfer intent when the provider loses the submission resu
     await client.close()
     await service.close()
   }
+})
+
+test('exposes child delegation and reclaim as non-secret MCP lifecycle operations', async () => {
+  const seed = new Uint8Array(64).fill(12)
+  const events = []
+  const session = createSessionReceipt({
+    budgetBaseUnits: 500000n, command: 'opencode', commandArgs: []
+  })
+  const tree = {
+    rootId: 'root',
+    nodes: [{
+      id: 'root',
+      name: 'root',
+      parentId: null,
+      address: '0xEphemeral',
+      status: 'open',
+      disposalStatus: 'active'
+    }]
+  }
+  const hierarchy = {
+    snapshot: () => structuredClone(tree),
+    async delegate ({ name, amount }, hooks) {
+      assert.equal(name, 'research')
+      assert.equal(amount, 200000n)
+      const node = {
+        id: 'root/1',
+        name,
+        parentId: 'root',
+        address: '0xResearch',
+        delegatedBudgetBaseUnits: amount.toString(),
+        status: 'open',
+        disposalStatus: 'active'
+      }
+      tree.nodes.push(node)
+      await hooks.onChange(tree)
+      events.push('delegate')
+      return structuredClone(node)
+    },
+    async close (name, hooks) {
+      assert.equal(name, 'research')
+      const node = tree.nodes.find((entry) => entry.name === name)
+      Object.assign(node, {
+        status: 'closed',
+        disposalStatus: 'disposed',
+        usdtReturnedToParentBaseUnits: '200000',
+        ethReturnedToParentWei: '10000'
+      })
+      await hooks.onChange(tree)
+      events.push('close')
+      return structuredClone(node)
+    },
+    async closeAll () { events.push('close-all') }
+  }
+  const service = await createSandboxMcpService(seed, config, '0xephemeral', {
+    WalletManager: fakeWallet(events, seed),
+    hierarchy,
+    session
+  })
+  const launch = service.configureLaunch('opencode', [], {})
+  const command = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT).mcp.ration.command
+  const client = new Client({ name: 'ration-test', version: '1.0.0' })
+  const transport = new StdioClientTransport({
+    command: command[0], args: command.slice(1), stderr: 'pipe'
+  })
+
+  try {
+    await client.connect(transport)
+    const tools = await client.listTools()
+    assert.equal(tools.tools.some((tool) => tool.name === 'ration_delegateBudget'), true)
+    assert.equal(tools.tools.some((tool) => tool.name === 'ration_closeSandbox'), true)
+    const delegated = await client.callTool({
+      name: 'ration_delegateBudget', arguments: { name: 'research', amount: '0.20' }
+    })
+    assert.equal(delegated.content[0].text,
+      'Child      research\nAddress    0xResearch\nBudget     0.20 USDT\nParent     root')
+    assert.deepEqual(delegated.structuredContent, {
+      name: 'research',
+      address: '0xResearch',
+      budget: '0.20',
+      budgetBaseUnits: '200000',
+      parent: 'root',
+      status: 'open'
+    })
+
+    const reclaimed = await client.callTool({
+      name: 'ration_closeSandbox', arguments: { name: 'research' }
+    })
+    assert.equal(reclaimed.structuredContent.usdtReturnedBaseUnits, '200000')
+    assert.equal(reclaimed.structuredContent.ethReturnedWei, '10000')
+    assert.equal(reclaimed.structuredContent.disposalStatus, 'disposed')
+    assert.equal(session.receipt.sandboxTree.nodes.at(-1).status, 'closed')
+    assert.doesNotMatch(JSON.stringify(delegated), /seed|private.?key|keyPair/i)
+  } finally {
+    await client.close()
+    await service.close()
+  }
+  assert.deepEqual(events.filter((event) => typeof event === 'string'), [
+    'delegate', 'close', 'close-all'
+  ])
 })
 
 test('allows consecutive direct transfers without elicitation and leaves overspending to the wallet', async () => {
@@ -582,7 +683,7 @@ test('configures Codex transiently without putting wallet credentials in argumen
     const joined = launch.args.join(' ')
     const enabledTools = launch.args.find((arg) => arg.startsWith('mcp_servers.ration.enabled_tools='))
     assert.match(joined, /mcp_servers\.ration\.command/)
-    assert.equal(enabledTools, 'mcp_servers.ration.enabled_tools=["getAddress","getBalance","getTokenBalance","transfer","ration_getRemainingBalance","ration_getCatalog","ration_purchaseResource"]')
+    assert.equal(enabledTools, 'mcp_servers.ration.enabled_tools=["getAddress","getBalance","getTokenBalance","transfer","ration_getRemainingBalance","ration_getCatalog","ration_purchaseResource","ration_delegateBudget","ration_closeSandbox"]')
     assert.equal(launch.args.includes('mcp_servers.ration.default_tools_approval_mode="approve"'), true)
     assert.equal(launch.args.includes('mcp_servers.ration.tool_timeout_sec=240'), true)
     assert.doesNotMatch(joined, /rationtreasury/)

@@ -43,7 +43,7 @@ async function confirmedTransaction (account, hash) {
   }
 }
 
-function confirmTokenTransfers (server, pending, session, paymentContext, paymentRejection) {
+function confirmTokenTransfers (server, pending, session, paymentContext, paymentRejection, runFinancial) {
   server.wdk.registerMiddleware(CHAIN, async (account) => {
     if (account[CONFIRMED_TRANSFER]) return
 
@@ -51,7 +51,7 @@ function confirmTokenTransfers (server, pending, session, paymentContext, paymen
     account.transfer = async (options) => {
       const rejection = paymentRejection()
       if (rejection) throw new Error(rejection)
-      const operation = (async () => {
+      const execute = async () => {
         const context = paymentContext.getStore()
         const activityId = session?.recordActivity({
           type: context?.type === 'resource_purchase' ? 'resource_purchase' : 'direct_usdt_transfer',
@@ -82,7 +82,8 @@ function confirmTokenTransfers (server, pending, session, paymentContext, paymen
           await session?.flushActivity?.()
           throw error
         }
-      })()
+      }
+      const operation = runFinancial ? runFinancial(execute) : execute()
       pending.add(operation)
       try {
         return await operation
@@ -92,6 +93,127 @@ function confirmTokenTransfers (server, pending, session, paymentContext, paymen
     }
     Object.defineProperty(account, CONFIRMED_TRANSFER, { value: true })
   })
+}
+
+function registerHierarchyTools (server, options) {
+  if (!options.hierarchy) return
+  const childName = z.string().regex(
+    /^[a-z][a-z0-9-]{0,31}$/,
+    'Must start with a lowercase letter and contain only lowercase letters, digits, or hyphens'
+  )
+  const syncTree = async (tree) => {
+    options.session?.setSandboxTree?.(tree)
+    await options.session?.flushActivity?.()
+  }
+
+  server.registerTool(
+    'ration_delegateBudget',
+    {
+      title: 'Delegate Ration Budget',
+      description: 'Create one disposable child EOA, provision its minimal Sepolia ETH lifecycle reserve, and transfer exactly the requested USDT amount to it on-chain. The child receives no access to the parent key or remaining parent balance.',
+      inputSchema: z.object({
+        name: childName.describe('A session-local child name, for example "research"'),
+        amount: z.string()
+          .refine((value) => parseUsdt(value) !== null, 'Must be a positive USDT amount with at most 6 decimals')
+          .describe('The exact USDT budget to transfer to the child')
+      }),
+      outputSchema: z.object({
+        name: z.string(),
+        address: z.string(),
+        budget: z.string(),
+        budgetBaseUnits: z.string(),
+        parent: z.string(),
+        status: z.literal('open')
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true
+      }
+    },
+    async ({ name, amount }) => {
+      const rejection = options.paymentRejection?.()
+      if (rejection) return toolError(new Error(rejection))
+      try {
+        const node = await options.hierarchy.delegate(
+          { name, amount: parseUsdt(amount) },
+          { onChange: syncTree }
+        )
+        const budget = formatUsdtBaseUnits(node.delegatedBudgetBaseUnits).replace(/ USDT$/, '')
+        return {
+          content: [{
+            type: 'text',
+            text: `Child      ${node.name}\nAddress    ${node.address}\nBudget     ${budget} USDT\nParent     root`
+          }],
+          structuredContent: {
+            name: node.name,
+            address: node.address,
+            budget,
+            budgetBaseUnits: node.delegatedBudgetBaseUnits,
+            parent: 'root',
+            status: 'open'
+          }
+        }
+      } catch (error) {
+        return toolError(error)
+      }
+    }
+  )
+
+  server.registerTool(
+    'ration_closeSandbox',
+    {
+      title: 'Close Ration Child Sandbox',
+      description: 'Sweep a child sandbox\'s remaining USDT and economically recoverable Sepolia ETH back to its parent, then dispose its WDK wallet and zero app-owned child seed material.',
+      inputSchema: z.object({
+        name: childName.describe('The child sandbox name returned by ration_delegateBudget')
+      }),
+      outputSchema: z.object({
+        name: z.string(),
+        address: z.string(),
+        usdtReturned: z.string(),
+        usdtReturnedBaseUnits: z.string(),
+        ethReturnedWei: z.string(),
+        parent: z.string(),
+        status: z.literal('closed'),
+        disposalStatus: z.literal('disposed')
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async ({ name }) => {
+      const rejection = options.paymentRejection?.()
+      if (rejection) return toolError(new Error(rejection))
+      try {
+        const node = await options.hierarchy.close(name, { onChange: syncTree })
+        const usdtReturned = formatUsdtBaseUnits(node.usdtReturnedToParentBaseUnits)
+          .replace(/ USDT$/, '')
+        return {
+          content: [{
+            type: 'text',
+            text: `Child      ${node.name}\nAddress    ${node.address}\nReturned   ${usdtReturned} USDT\nParent     root\nStatus     closed and disposed`
+          }],
+          structuredContent: {
+            name: node.name,
+            address: node.address,
+            usdtReturned,
+            usdtReturnedBaseUnits: node.usdtReturnedToParentBaseUnits,
+            ethReturnedWei: node.ethReturnedToParentWei,
+            parent: 'root',
+            status: 'closed',
+            disposalStatus: 'disposed'
+          }
+        }
+      } catch (error) {
+        return toolError(error)
+      }
+    }
+  )
 }
 
 function getSepoliaBalance (server) {
@@ -372,7 +494,8 @@ function tomlString (value) {
 
 const ENABLED_TOOLS = [
   'getAddress', 'getBalance', 'getTokenBalance', 'transfer',
-  'ration_getRemainingBalance', 'ration_getCatalog', 'ration_purchaseResource'
+  'ration_getRemainingBalance', 'ration_getCatalog', 'ration_purchaseResource',
+  'ration_delegateBudget', 'ration_closeSandbox'
 ]
 
 const OPENCODE_TOOL_PERMISSIONS = Object.fromEntries(
@@ -461,10 +584,12 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
     pendingConfirmations,
     options.session,
     paymentContext,
-    paymentRejection
+    paymentRejection,
+    options.runFinancial
   )
   const demoOrigin = resolveDemoOriginImpl(options.demoEnv ?? process.env)
   registerDemoTools(server, demoOrigin, { ...options, paymentContext, paymentRejection })
+  registerHierarchyTools(server, { ...options, paymentRejection })
   let directory
   let socketServer
   let connection
@@ -481,9 +606,25 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
       while (pendingConfirmations.size > 0) {
         await Promise.allSettled([...pendingConfirmations])
       }
-      await server.close()
     } catch (error) {
       closeError = error
+    }
+    try {
+      if (options.hierarchy) {
+        await options.hierarchy.closeAll({
+          onChange: async (tree) => {
+            options.session?.setSandboxTree?.(tree)
+            await options.session?.flushActivity?.()
+          }
+        })
+      }
+    } catch (error) {
+      closeError ??= error
+    }
+    try {
+      await server.close()
+    } catch (error) {
+      closeError ??= error
     }
     connection?.destroy()
     try {
@@ -512,6 +653,10 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
     const account = await server.wdk.getAccount(CHAIN, 0)
     if ((await account.getAddress()).toLowerCase() !== expectedAddress.toLowerCase()) {
       throw new Error('The MCP wallet does not match the ephemeral sandbox.')
+    }
+    if (options.hierarchy) {
+      options.session?.setSandboxTree?.(options.hierarchy.snapshot())
+      await options.session?.flushActivity?.()
     }
 
     directory = await makeTempDirectory(join(tmpdir(), 'ration-mcp-'))

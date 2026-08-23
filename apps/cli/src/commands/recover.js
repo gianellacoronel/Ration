@@ -90,6 +90,16 @@ async function recoverOne (storedJournal, standard, options, output) {
       }
     }
 
+    if (journal.sandboxTree) {
+      await sandbox.restoreHierarchy?.(journal.sandboxTree)
+      await sandbox.closeChildren?.({
+        onChange: async (tree) => {
+          journal.sandboxTree = tree
+          await persistJournal(journal, recovery.journalKey, options)
+        }
+      })
+    }
+
     const usdtBalance = await sandbox.getUsdtBalance()
     const ethBalance = await sandbox.getEthBalance()
     output.log(`Recovering ${shortSessionId(journal.sessionId)}`)
@@ -172,6 +182,7 @@ async function recoverOne (storedJournal, standard, options, output) {
     receipt.initialGasReserveWei = journal.gasReserveWei
     receipt.fundingTransactions = structuredClone(journal.transactions.funding)
     receipt.activity = structuredClone(journal.activity)
+    receipt.sandboxTree = structuredClone(journal.sandboxTree ?? receipt.sandboxTree)
     receipt.usdtReturnedToTreasuryBaseUnits = usdtSweep.amount.toString()
     receipt.ethReturnedToTreasuryWei = ethSweep.amount.toString()
     receipt.returnTransactions = structuredClone(journal.transactions.returns)

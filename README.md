@@ -258,7 +258,7 @@ and never require `ration recover`.
 
 `ration run` attaches an official `@tetherto/wdk-mcp-toolkit` server to OpenCode and Codex without writing either agent's configuration files. The agent starts a local stdio bridge connected to a private, session-only Unix socket; the seed remains in the parent Ration process and is never placed in command arguments, environment variables, configuration files, or logs.
 
-The server registers one `sepolia` wallet and seven scoped tools:
+The root server registers one `sepolia` wallet and eight scoped tools:
 
 - `getAddress`
 - `getBalance` for native Sepolia ETH, returned as both formatted ETH and canonical wei
@@ -267,10 +267,13 @@ The server registers one `sepolia` wallet and seven scoped tools:
 - `ration_getRemainingBalance` to read the disposable sandbox's current USDT balance without spending
 - `ration_getCatalog` to discover the paid resources on the configured Ration demo API
 - `ration_purchaseResource` to request a catalog resource with its catalog price, validate that price and its `402` Sepolia test USDT requirements, check the sandbox balance, pay from the same ephemeral EOA, wait for confirmation, and return the unlocked payload
+- `ration_spawnSubagent({ name, budget, task })` to move an exact USDT budget into one fresh child EOA, launch a task-only OpenCode or Codex child backed by that wallet, wait for its result, and reclaim unused USDT and ETH to the root wallet
+
+Only one child can be created per session. Its temporary MCP has the same seven balance, catalog, purchase, and USDT-transfer tools listed above, but it does not expose `ration_spawnSubagent` or any other hierarchy operation. Ration passes neither the root seed nor treasury credentials to the child process. The child MCP independently derives and verifies the child address, permits at most five financial writes backed by a buffered gas reserve, and closes before the child wallet is swept and disposed. OpenCode and Codex receive native non-interactive launch syntax; other executables are reused with their original arguments plus the child task and receive neutral `RATION_MCP_*` bridge metadata for a custom MCP adapter.
 
 No native transfer, arbitrary transaction, signing, quote, swap, bridge, wallet-management, indexer, or protocol tools are registered. Purchases accept only a resource ID and its exact catalog price; the server rejects stale prices, and arbitrary URLs or client-selected payment destinations are not accepted. Sepolia is the only registered chain and USDT is the only registered token, so `transfer` cannot resolve another asset. The MCP WDK derives the account independently and Ration fails closed if its address does not exactly match the funded sandbox. It never connects to the WDK CLI daemon and cannot see `rationtreasury`.
 
-WDK MCP elicitation is disabled and Ration transiently pre-approves only this session-scoped server's tools in supported agent hosts, so low-level USDT transfers and `ration_purchaseResource` run autonomously within the USDT balance approved when the session starts. Unrelated agent tools retain their normal approval policy. The disposable wallet's actual balance is the financial boundary; Ration does not maintain a second software spending limit or grant the MCP server access to the treasury.
+WDK MCP elicitation is disabled and Ration transiently pre-approves only this session-scoped server's tools in supported agent hosts, so low-level USDT transfers and `ration_purchaseResource` run autonomously within the funded wallet's USDT balance. Unrelated agent tools retain their normal approval policy. The wallet's actual on-chain balance is the loss boundary; the child write cap preserves cleanup gas and does not grant access to parent funds. Neither server receives treasury access.
 
 The WDK MCP server and its tool behavior are client-neutral. Ration contains small launch adapters only for transiently attaching that standard server to Codex and OpenCode without modifying their persistent configuration.
 
@@ -293,6 +296,9 @@ This demonstrates the core capability: *the agent can be compromised without com
 - Normal sessions never register a sandbox with the WDK CLI.
 - Sandbox seed bytes, account, and manager exist only in the Ration process.
 - Sandbox secrets are never printed, passed in child arguments or environment, or persisted by Ration.
+- Child agents receive only their child wallet MCP; the root and treasury keys never enter the child launch configuration.
+- Child exit, failure, financial expiration, and session cleanup revoke child MCP access before unused USDT and ETH return to the root wallet.
+- Authenticated recovery journals persist every child funding, agent-state, spending, return, and disposal tree update.
 - The MCP server exposes address and balance reads, autonomous low-level USDT transfers, and autonomous purchases restricted to the configured demo API for the ephemeral account.
 - MCP resources close before sweeping and final sandbox disposal.
 - Treasury balance reads, dry runs, and transfers use structured official WDK CLI output.

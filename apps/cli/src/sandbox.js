@@ -114,6 +114,11 @@ export async function createEphemeralSandbox (config, options = {}) {
       delegateBudget: (input, hooks) => hierarchy.delegate(input, hooks),
       closeChild: (name, hooks) => hierarchy.close(name, hooks),
       closeChildren: (hooks) => hierarchy.closeAll(hooks),
+      openChildMcp: (name, mcpOptions = {}) => hierarchy.openChildMcp(
+        name,
+        createSandboxMcpService,
+        mcpOptions
+      ),
       restoreHierarchy: (tree) => hierarchy.restore(tree),
       getSandboxTree: () => hierarchy.snapshot(),
       async quoteLifecycleGas (recipient) {

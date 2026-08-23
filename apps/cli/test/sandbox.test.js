@@ -361,11 +361,11 @@ test('delegates a real child balance and reclaims it without exposing the parent
   })
 
   assert.equal(child.address, '0xresearch')
-  assert.equal(child.gasReserveWei, '61000')
-  assert.deepEqual(balances.get('0xroot'), { usdt: 300000n, eth: 888000n })
-  assert.deepEqual(balances.get('0xresearch'), { usdt: 200000n, eth: 61000n })
+  assert.equal(child.gasReserveWei, '326250')
+  assert.deepEqual(balances.get('0xroot'), { usdt: 300000n, eth: 622750n })
+  assert.deepEqual(balances.get('0xresearch'), { usdt: 200000n, eth: 326250n })
   assert.deepEqual(events.slice(0, 2).map((event) => event.slice(0, 4)), [
-    ['eth', '0xroot', '0xresearch', 61000n],
+    ['eth', '0xroot', '0xresearch', 326250n],
     ['usdt', '0xroot', '0xresearch', 200000n]
   ])
   assert.notDeepEqual(seeds[0], seeds[1])
@@ -379,12 +379,12 @@ test('delegates a real child balance and reclaims it without exposing the parent
   assert.equal(closed.status, 'closed')
   assert.equal(closed.disposalStatus, 'disposed')
   assert.equal(closed.usdtReturnedToParentBaseUnits, '200000')
-  assert.equal(closed.ethReturnedToParentWei, '10000')
+  assert.equal(closed.ethReturnedToParentWei, '275250')
   assert.deepEqual(balances.get('0xroot'), { usdt: 500000n, eth: 898000n })
   assert.deepEqual(balances.get('0xresearch'), { usdt: 0n, eth: 0n })
   assert.deepEqual(events.slice(2, 4).map((event) => event.slice(0, 4)), [
     ['usdt', '0xresearch', '0xroot', 200000n],
-    ['eth', '0xresearch', '0xroot', 10000n]
+    ['eth', '0xresearch', '0xroot', 275250n]
   ])
   assert.equal(seeds[1].every((byte) => byte === 0), true)
   assert.equal(treeUpdates.at(-1).nodes.find((node) => node.name === 'research').status, 'closed')

@@ -8,7 +8,10 @@ import { USDT_ADDRESS } from './config.js'
 const CHAIN = 'sepolia'
 const ROOT_ID = 'root'
 const MAX_CHILDREN = 1
+export const MAX_CHILD_FINANCIAL_WRITES = 5
 const CHILD_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/
+const GAS_RESERVE_NUMERATOR = 125n
+const GAS_RESERVE_DENOMINATOR = 100n
 
 function childSeed (rootSeed, id) {
   return Buffer.from(hkdfSync(
@@ -289,6 +292,11 @@ export function createSandboxHierarchy (input) {
         disposalStatus: 'active',
         createdAt: input.now(),
         closedAt: null,
+        agentStatus: 'not_started',
+        agentExitCode: null,
+        agentSignal: null,
+        agentStartedAt: null,
+        agentFinishedAt: null,
         transactions: {
           funding: { eth: null, usdt: null },
           returns: { usdt: null, eth: [] }
@@ -315,14 +323,20 @@ export function createSandboxHierarchy (input) {
       if (childTokenQuote.fee <= 0n || childNativeQuote.fee <= 0n) {
         throw new Error('WDK returned an invalid child lifecycle gas quote.')
       }
-      const gasReserve = childTokenQuote.fee + childNativeQuote.fee
-      node.record.gasReserveWei = gasReserve.toString()
-
       const parentTokenQuote = await input.rootAccount.quoteTransfer({
         token: USDT_ADDRESS,
         recipient: address,
         amount
       })
+      const tokenFee = parentTokenQuote.fee > childTokenQuote.fee
+        ? parentTokenQuote.fee
+        : childTokenQuote.fee
+      const lifecycleFees = tokenFee * BigInt(MAX_CHILD_FINANCIAL_WRITES + 1) +
+        childNativeQuote.fee
+      const gasReserve = (lifecycleFees * GAS_RESERVE_NUMERATOR + GAS_RESERVE_DENOMINATOR - 1n) /
+        GAS_RESERVE_DENOMINATOR
+      node.record.gasReserveWei = gasReserve.toString()
+
       const parentNativeQuote = await input.rootAccount.quoteSendTransaction({
         to: address,
         value: gasReserve
@@ -390,6 +404,32 @@ export function createSandboxHierarchy (input) {
     return closed
   })
 
+  const updateAgent = (name, update, hooks = {}) => serialize(async () => {
+    const node = [...children.values()].find((child) => child.record.name === name)
+    if (!node) throw new Error(`Child sandbox "${name}" does not exist.`)
+    Object.assign(node.record, update)
+    await notify(hooks)
+    return publicNode(node)
+  })
+
+  const openChildMcp = async (name, createService, options = {}) => {
+    const node = [...children.values()].find((child) => child.record.name === name)
+    if (!node || node.record.status !== 'open' || !node.wallet || node.wallet.disposed) {
+      throw new Error(`Child sandbox "${name}" is not open.`)
+    }
+    return createService(node.wallet.seed, input.config, node.record.address, {
+      ...options,
+      runFinancial: input.runFinancial,
+      sandboxIdentity: {
+        id: node.record.id,
+        name: node.record.name,
+        address: node.record.address,
+        parentId: ROOT_ID
+      },
+      maxFinancialWrites: MAX_CHILD_FINANCIAL_WRITES
+    })
+  }
+
   const restore = async (tree) => {
     if (!tree?.nodes) return
     for (const record of tree.nodes.filter((entry) => entry.id !== ROOT_ID)) {
@@ -425,5 +465,5 @@ export function createSandboxHierarchy (input) {
     if (disposalError) throw disposalError
   }
 
-  return { snapshot, delegate, close, closeAll, restore, dispose }
+  return { snapshot, delegate, close, closeAll, updateAgent, openChildMcp, restore, dispose }
 }

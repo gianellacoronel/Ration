@@ -23,12 +23,13 @@ import {
   resolveDemoOrigin
 } from './demo.js'
 import { formatEthBaseUnits, formatUsdtBaseUnits, parseUsdt } from './domain.js'
+import { runSubagentCommand } from './processes.js'
 
 const CHAIN = 'sepolia'
 const SERVER_NAME = 'ration'
 const TRANSACTION_TIMEOUT_MS = 180000
 const TRANSACTION_POLL_MS = 1000
-const MCP_TOOL_TIMEOUT_SECONDS = 240
+const MCP_TOOL_TIMEOUT_SECONDS = 1800
 const CONFIRMED_TRANSFER = Symbol('confirmedTransfer')
 export const FINANCIAL_SESSION_EXPIRED_MESSAGE = 'Ration financial session expired. No further spending is allowed.'
 
@@ -43,28 +44,36 @@ async function confirmedTransaction (account, hash) {
   }
 }
 
-function confirmTokenTransfers (server, pending, session, paymentContext, paymentRejection, runFinancial) {
+function confirmTokenTransfers (server, pending, session, paymentContext, paymentRejection, runFinancial, serviceOptions = {}) {
+  let financialWrites = 0
   server.wdk.registerMiddleware(CHAIN, async (account) => {
     if (account[CONFIRMED_TRANSFER]) return
 
     const broadcast = account.transfer.bind(account)
-    account.transfer = async (options) => {
+    account.transfer = async (transferOptions) => {
       const rejection = paymentRejection()
       if (rejection) throw new Error(rejection)
       const execute = async () => {
+        if (financialWrites >= (serviceOptions.maxFinancialWrites ?? Infinity)) {
+          throw new Error(`This child sandbox permits at most ${serviceOptions.maxFinancialWrites} financial writes.`)
+        }
+        financialWrites++
         const context = paymentContext.getStore()
         const activityId = session?.recordActivity({
           type: context?.type === 'resource_purchase' ? 'resource_purchase' : 'direct_usdt_transfer',
           resource: context?.resource ?? null,
-          amountBaseUnits: options.amount.toString(),
-          recipientAddress: options.recipient,
+          amountBaseUnits: transferOptions.amount.toString(),
+          recipientAddress: transferOptions.recipient,
           transactionHash: null,
           feeWei: null,
           status: 'submission_unknown',
+          sandboxId: serviceOptions.sandboxIdentity?.id ?? 'root',
+          sandboxName: serviceOptions.sandboxIdentity?.name ?? 'root',
+          walletAddress: serviceOptions.sandboxIdentity?.address ?? null,
           submittedAt: session?.now() ?? new Date().toISOString()
         })
         await session?.flushActivity?.()
-        const result = await broadcast(options)
+        const result = await broadcast(transferOptions)
         session?.updateActivity(activityId, {
           transactionHash: result.hash,
           feeWei: result.fee?.toString() ?? null,
@@ -95,8 +104,15 @@ function confirmTokenTransfers (server, pending, session, paymentContext, paymen
   })
 }
 
-function registerHierarchyTools (server, options) {
-  if (!options.hierarchy) return
+function subagentInvocation (command, commandArgs, task) {
+  const agent = basename(command).toLowerCase()
+  if (agent === 'opencode') return { command, args: ['run', task] }
+  if (agent === 'codex') return { command, args: ['exec', task] }
+  return { command, args: [...(commandArgs ?? []), task] }
+}
+
+function registerHierarchyTools (server, options, pending) {
+  if (!options.hierarchy) return { expireChild: async () => {} }
   const childName = z.string().regex(
     /^[a-z][a-z0-9-]{0,31}$/,
     'Must start with a lowercase letter and contain only lowercase letters, digits, or hyphens'
@@ -105,25 +121,119 @@ function registerHierarchyTools (server, options) {
     options.session?.setSandboxTree?.(tree)
     await options.session?.flushActivity?.()
   }
+  let spawning = false
+  let activeChildMcp
+  let activeChildController
+
+  const spawnSubagent = async ({ name, budget, task }) => {
+    const rejection = options.paymentRejection?.()
+    if (rejection) return toolError(new Error(rejection))
+    if (spawning) return toolError(new Error('A child subagent is already running.'))
+    spawning = true
+    let delegated = false
+    let childMcp
+    let agentResult
+    let operationError
+    try {
+      const amount = parseUsdt(budget)
+      await options.hierarchy.delegate({ name, amount }, { onChange: syncTree })
+      delegated = true
+      await options.hierarchy.updateAgent(name, {
+        agentStatus: 'running',
+        agentStartedAt: options.session?.now?.() ?? new Date().toISOString()
+      }, { onChange: syncTree })
+      activeChildController = new AbortController()
+      childMcp = await options.hierarchy.openChildMcp(name, createSandboxMcpService, {
+        ...options.childMcpOptions,
+        session: options.session
+      })
+      activeChildMcp = childMcp
+      const afterProvisioningRejection = options.paymentRejection?.()
+      if (afterProvisioningRejection || activeChildController.signal.aborted) {
+        throw new Error(afterProvisioningRejection ?? FINANCIAL_SESSION_EXPIRED_MESSAGE)
+      }
+      const invocation = subagentInvocation(
+        options.subagentCommand,
+        options.subagentCommandArgs,
+        task
+      )
+      const launch = childMcp.configureLaunch(invocation.command, invocation.args)
+      const run = options.runSubagentCommand ?? runSubagentCommand
+      agentResult = await run(launch.command, launch.args, {
+        env: launch.env,
+        signal: activeChildController.signal
+      })
+      if (!Number.isInteger(agentResult?.code) || agentResult.code !== 0) {
+        const detail = agentResult?.stderr ? ` ${agentResult.stderr}` : ''
+        throw new Error(`Subagent "${name}" exited unsuccessfully.${detail}`)
+      }
+      await options.hierarchy.updateAgent(name, {
+        agentStatus: 'exited',
+        agentExitCode: agentResult.code,
+        agentSignal: agentResult.signal ?? null,
+        agentFinishedAt: options.session?.now?.() ?? new Date().toISOString()
+      }, { onChange: syncTree })
+    } catch (error) {
+      operationError = error
+      if (delegated) {
+        try {
+          await options.hierarchy.updateAgent(name, {
+            agentStatus: 'failed',
+            agentExitCode: agentResult?.code ?? null,
+            agentSignal: agentResult?.signal ?? null,
+            agentFinishedAt: options.session?.now?.() ?? new Date().toISOString()
+          }, { onChange: syncTree })
+        } catch {}
+      }
+    } finally {
+      if (childMcp) {
+        try { await childMcp.close() } catch (error) { operationError ??= error }
+      }
+      activeChildMcp = undefined
+      activeChildController = undefined
+      if (delegated) {
+        try { await options.hierarchy.close(name, { onChange: syncTree }) } catch (error) { operationError ??= error }
+      }
+      spawning = false
+    }
+    if (operationError) return toolError(operationError)
+
+    const node = options.hierarchy.snapshot().nodes.find((entry) => entry.name === name)
+    const returned = BigInt(node.usdtReturnedToParentBaseUnits)
+    const spent = BigInt(node.delegatedBudgetBaseUnits) - returned
+    const result = agentResult.stdout || 'The child completed without returning textual output.'
+    return {
+      content: [{ type: 'text', text: result }],
+      structuredContent: {
+        name,
+        result,
+        budget: formatUsdtBaseUnits(node.delegatedBudgetBaseUnits).replace(/ USDT$/, ''),
+        spent: formatUsdtBaseUnits(spent).replace(/ USDT$/, ''),
+        returned: formatUsdtBaseUnits(returned).replace(/ USDT$/, ''),
+        status: 'closed'
+      }
+    }
+  }
 
   server.registerTool(
-    'ration_delegateBudget',
+    'ration_spawnSubagent',
     {
-      title: 'Delegate Ration Budget',
-      description: 'Create one disposable child EOA, provision its minimal Sepolia ETH lifecycle reserve, and transfer exactly the requested USDT amount to it on-chain. The child receives no access to the parent key or remaining parent balance.',
+      title: 'Spawn Ration Subagent',
+      description: 'Create one child EOA, move the requested USDT budget to it on-chain, launch one task-only child agent with a wallet-scoped Ration MCP, wait for its result, and return unused USDT and ETH to the parent. The child cannot access the parent wallet, treasury, or subagent tools.',
       inputSchema: z.object({
         name: childName.describe('A session-local child name, for example "research"'),
-        amount: z.string()
+        budget: z.string()
           .refine((value) => parseUsdt(value) !== null, 'Must be a positive USDT amount with at most 6 decimals')
-          .describe('The exact USDT budget to transfer to the child')
+          .describe('The exact USDT budget to transfer to the child'),
+        task: z.string().min(1).describe('The task the child agent must complete')
       }),
       outputSchema: z.object({
         name: z.string(),
-        address: z.string(),
+        result: z.string(),
         budget: z.string(),
-        budgetBaseUnits: z.string(),
-        parent: z.string(),
-        status: z.literal('open')
+        spent: z.string(),
+        returned: z.string(),
+        status: z.literal('closed')
       }),
       annotations: {
         readOnlyHint: false,
@@ -132,88 +242,23 @@ function registerHierarchyTools (server, options) {
         openWorldHint: true
       }
     },
-    async ({ name, amount }) => {
-      const rejection = options.paymentRejection?.()
-      if (rejection) return toolError(new Error(rejection))
+    async (input) => {
+      const operation = spawnSubagent(input)
+      pending.add(operation)
       try {
-        const node = await options.hierarchy.delegate(
-          { name, amount: parseUsdt(amount) },
-          { onChange: syncTree }
-        )
-        const budget = formatUsdtBaseUnits(node.delegatedBudgetBaseUnits).replace(/ USDT$/, '')
-        return {
-          content: [{
-            type: 'text',
-            text: `Child      ${node.name}\nAddress    ${node.address}\nBudget     ${budget} USDT\nParent     root`
-          }],
-          structuredContent: {
-            name: node.name,
-            address: node.address,
-            budget,
-            budgetBaseUnits: node.delegatedBudgetBaseUnits,
-            parent: 'root',
-            status: 'open'
-          }
-        }
-      } catch (error) {
-        return toolError(error)
+        return await operation
+      } finally {
+        pending.delete(operation)
       }
     }
   )
 
-  server.registerTool(
-    'ration_closeSandbox',
-    {
-      title: 'Close Ration Child Sandbox',
-      description: 'Sweep a child sandbox\'s remaining USDT and economically recoverable Sepolia ETH back to its parent, then dispose its WDK wallet and zero app-owned child seed material.',
-      inputSchema: z.object({
-        name: childName.describe('The child sandbox name returned by ration_delegateBudget')
-      }),
-      outputSchema: z.object({
-        name: z.string(),
-        address: z.string(),
-        usdtReturned: z.string(),
-        usdtReturnedBaseUnits: z.string(),
-        ethReturnedWei: z.string(),
-        parent: z.string(),
-        status: z.literal('closed'),
-        disposalStatus: z.literal('disposed')
-      }),
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: true,
-        openWorldHint: true
-      }
-    },
-    async ({ name }) => {
-      const rejection = options.paymentRejection?.()
-      if (rejection) return toolError(new Error(rejection))
-      try {
-        const node = await options.hierarchy.close(name, { onChange: syncTree })
-        const usdtReturned = formatUsdtBaseUnits(node.usdtReturnedToParentBaseUnits)
-          .replace(/ USDT$/, '')
-        return {
-          content: [{
-            type: 'text',
-            text: `Child      ${node.name}\nAddress    ${node.address}\nReturned   ${usdtReturned} USDT\nParent     root\nStatus     closed and disposed`
-          }],
-          structuredContent: {
-            name: node.name,
-            address: node.address,
-            usdtReturned,
-            usdtReturnedBaseUnits: node.usdtReturnedToParentBaseUnits,
-            ethReturnedWei: node.ethReturnedToParentWei,
-            parent: 'root',
-            status: 'closed',
-            disposalStatus: 'disposed'
-          }
-        }
-      } catch (error) {
-        return toolError(error)
-      }
+  return {
+    expireChild: async () => {
+      await activeChildMcp?.expire()
+      activeChildController?.abort('SIGTERM')
     }
-  )
+  }
 }
 
 function getSepoliaBalance (server) {
@@ -492,17 +537,13 @@ function tomlString (value) {
   return JSON.stringify(value)
 }
 
-const ENABLED_TOOLS = [
+const SANDBOX_ENABLED_TOOLS = [
   'getAddress', 'getBalance', 'getTokenBalance', 'transfer',
-  'ration_getRemainingBalance', 'ration_getCatalog', 'ration_purchaseResource',
-  'ration_delegateBudget', 'ration_closeSandbox'
+  'ration_getRemainingBalance', 'ration_getCatalog', 'ration_purchaseResource'
 ]
+const ROOT_ENABLED_TOOLS = [...SANDBOX_ENABLED_TOOLS, 'ration_spawnSubagent']
 
-const OPENCODE_TOOL_PERMISSIONS = Object.fromEntries(
-  ENABLED_TOOLS.map((tool) => [`${SERVER_NAME}_${tool}`, 'allow'])
-)
-
-function configureOpenCode (args, env, bridgeCommand) {
+function configureOpenCode (args, env, bridgeCommand, enabledTools) {
   let inline = {}
   if (env.OPENCODE_CONFIG_CONTENT) {
     try {
@@ -523,7 +564,7 @@ function configureOpenCode (args, env, bridgeCommand) {
         ...inline,
         permission: {
           ...inheritedPermissions,
-          ...OPENCODE_TOOL_PERMISSIONS
+          ...Object.fromEntries(enabledTools.map((tool) => [`${SERVER_NAME}_${tool}`, 'allow']))
         },
         mcp: {
           ...inline.mcp,
@@ -531,7 +572,7 @@ function configureOpenCode (args, env, bridgeCommand) {
             type: 'local',
             command: bridgeCommand,
             enabled: true,
-            timeout: 10000
+            timeout: MCP_TOOL_TIMEOUT_SECONDS * 1000
           }
         }
       })
@@ -539,12 +580,12 @@ function configureOpenCode (args, env, bridgeCommand) {
   }
 }
 
-function configureCodex (args, env, bridgeCommand) {
+function configureCodex (args, env, bridgeCommand, enabledTools) {
   const [command, ...commandArgs] = bridgeCommand
   const config = [
     `mcp_servers.${SERVER_NAME}.command=${tomlString(command)}`,
     `mcp_servers.${SERVER_NAME}.args=[${commandArgs.map(tomlString).join(',')}]`,
-    `mcp_servers.${SERVER_NAME}.enabled_tools=[${ENABLED_TOOLS.map(tomlString).join(',')}]`,
+    `mcp_servers.${SERVER_NAME}.enabled_tools=[${enabledTools.map(tomlString).join(',')}]`,
     `mcp_servers.${SERVER_NAME}.default_tools_approval_mode="approve"`,
     `mcp_servers.${SERVER_NAME}.tool_timeout_sec=${MCP_TOOL_TIMEOUT_SECONDS}`,
     `mcp_servers.${SERVER_NAME}.required=true`
@@ -585,11 +626,17 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
     options.session,
     paymentContext,
     paymentRejection,
-    options.runFinancial
+    options.runFinancial,
+    options
   )
   const demoOrigin = resolveDemoOriginImpl(options.demoEnv ?? process.env)
   registerDemoTools(server, demoOrigin, { ...options, paymentContext, paymentRejection })
-  registerHierarchyTools(server, { ...options, paymentRejection })
+  const hierarchyControls = registerHierarchyTools(
+    server,
+    { ...options, paymentRejection },
+    pendingConfirmations
+  )
+  const enabledTools = options.hierarchy ? ROOT_ENABLED_TOOLS : SANDBOX_ENABLED_TOOLS
   let directory
   let socketServer
   let connection
@@ -603,6 +650,7 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
     if (lifecycle !== 'expired') lifecycle = 'closing'
     let closeError
     try {
+      await hierarchyControls.expireChild()
       while (pendingConfirmations.size > 0) {
         await Promise.allSettled([...pendingConfirmations])
       }
@@ -644,6 +692,7 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
   const expire = async () => {
     if (lifecycle !== 'open') return
     lifecycle = 'expired'
+    await hierarchyControls.expireChild()
     while (pendingConfirmations.size > 0) {
       await Promise.allSettled([...pendingConfirmations])
     }
@@ -678,9 +727,18 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
     return {
       configureLaunch (command, args, env = process.env) {
         const agent = basename(command).toLowerCase()
-        if (agent === 'opencode') return { command, ...configureOpenCode(args, env, bridgeCommand) }
-        if (agent === 'codex') return { command, ...configureCodex(args, env, bridgeCommand) }
-        return { command, args, env }
+        if (agent === 'opencode') return { command, ...configureOpenCode(args, env, bridgeCommand, enabledTools) }
+        if (agent === 'codex') return { command, ...configureCodex(args, env, bridgeCommand, enabledTools) }
+        return {
+          command,
+          args,
+          env: {
+            ...env,
+            RATION_MCP_SERVER_NAME: SERVER_NAME,
+            RATION_MCP_COMMAND: JSON.stringify(bridgeCommand),
+            RATION_MCP_ENABLED_TOOLS: JSON.stringify(enabledTools)
+          }
+        }
       },
       expire,
       close

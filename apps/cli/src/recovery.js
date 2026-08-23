@@ -178,6 +178,7 @@ function journalSandboxTree (tree) {
       ...allowlistedObject(node, [
         'id', 'name', 'parentId', 'address', 'delegatedBudgetBaseUnits',
         'gasReserveWei', 'status', 'disposalStatus', 'createdAt', 'closedAt',
+        'agentStatus', 'agentExitCode', 'agentSignal', 'agentStartedAt', 'agentFinishedAt',
         'usdtReturnedToParentBaseUnits', 'ethReturnedToParentWei',
         'finalUsdtBalanceBaseUnits', 'finalEthBalanceWei'
       ]),
@@ -264,7 +265,7 @@ function journalPayload (journal) {
     activity: (journal.activity ?? []).map((activity) => allowlistedObject(activity, [
       'activityId', 'type', 'resource', 'amountBaseUnits', 'recipientAddress',
       'transactionHash', 'feeWei', 'status', 'submittedAt', 'broadcastAt',
-      'confirmedAt', 'failedAt'
+      'confirmedAt', 'failedAt', 'sandboxId', 'sandboxName', 'walletAddress'
     ]))
   }
   if (journal.sandboxTree !== undefined) payload.sandboxTree = journalSandboxTree(journal.sandboxTree)

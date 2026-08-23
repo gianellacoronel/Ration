@@ -268,7 +268,8 @@ export async function runCommand (args, options, output) {
     }, options)
     await saveJournal()
     session.setActivityListener(() => {
-      journal.activity = receipt.activity
+      journal.activity = structuredClone(receipt.activity)
+      journal.sandboxTree = structuredClone(receipt.sandboxTree)
       return saveJournal()
     })
 
@@ -372,7 +373,13 @@ export async function runCommand (args, options, output) {
           output.log(`Sandbox   ${sandbox.address}`)
           output.log(`Budget    ${formatUsdtBaseUnits(initialUsdt)}`)
           output.log('Gas       Sepolia ETH infrastructure reserve')
-          mcp = await sandbox.openMcp({ ...(options.mcpOptions ?? {}), session })
+          mcp = await sandbox.openMcp({
+            ...(options.mcpOptions ?? {}),
+            session,
+            subagentCommand: input.command,
+            subagentCommandArgs: input.commandArgs,
+            runSubagentCommand: options.runSubagentCommand
+          })
           if (financialTtl?.hasExpired) mcpExpiration ??= mcp.expire()
           receipt.cleanup.mcpStatus = 'open'
           output.log('Access    Ration MCP (catalog, purchase, balances, Sepolia USDT transfer)')
@@ -499,6 +506,7 @@ export async function runCommand (args, options, output) {
         receipt.cleanup.mcpStatus = 'close_failed'
         session.recordCleanupError('mcp_close', 'The sandbox MCP server could not be closed.')
         output.error('Security cleanup failed: the sandbox MCP server could not be closed.')
+        recoveryRequired = true
         exitCode = 1
       }
     }

@@ -95,7 +95,9 @@ export function createSessionReceipt (input, options = {}) {
 
 export function finalizeSessionReceipt (session, input = {}) {
   const receipt = session.receipt
-  const observedSpent = input.initialUsdtBalance !== undefined && input.finalUsdtBalance !== undefined
+  const childRecoveryComplete = childSandboxes(receipt).every((child) =>
+    child.status === 'closed' && child.disposalStatus === 'disposed')
+  const observedSpent = childRecoveryComplete && input.initialUsdtBalance !== undefined && input.finalUsdtBalance !== undefined
     ? BigInt(input.initialUsdtBalance) - BigInt(input.finalUsdtBalance)
     : null
   const recordedSpent = receipt.activity
@@ -270,6 +272,34 @@ function amountOrUnknown (value, formatter) {
 }
 
 export function renderSessionSummary (receipt) {
+  const children = childSandboxes(receipt)
+  if (children.length > 0) {
+    const lines = [`Session ${shortSessionId(receipt.sessionId)}`, '']
+    const amountLine = (label, amount) => `${label.padEnd(21)}${formatUsdtBaseUnits(amount)}`
+    lines.push(amountLine('root', receipt.initialUsdtBudgetBaseUnits))
+    for (const child of children) {
+      const returned = BigInt(child.usdtReturnedToParentBaseUnits ?? 0)
+      const recordedSpent = (receipt.activity ?? [])
+        .filter((activity) => activity.sandboxId === child.id && activity.status === 'confirmed')
+        .reduce((total, activity) => total + BigInt(activity.amountBaseUnits), 0n)
+      const spent = recordedSpent > 0n || child.status !== 'closed'
+        ? recordedSpent
+        : BigInt(child.delegatedBudgetBaseUnits) - returned
+      lines.push(
+        amountLine(`├── ${child.name}`, child.delegatedBudgetBaseUnits),
+        amountLine('│   spent', spent > 0n ? spent : 0n),
+        amountLine('│   returned', returned)
+      )
+    }
+    const available = BigInt(receipt.initialUsdtBudgetBaseUnits) - BigInt(receipt.totalUsdtSpentBaseUnits)
+    lines.push(
+      amountLine('└── root available', available > 0n ? available : 0n),
+      '',
+      amountLine('Total spent', receipt.totalUsdtSpentBaseUnits),
+      amountLine('Returned', receipt.usdtReturnedToTreasuryBaseUnits)
+    )
+    return lines
+  }
   const lines = [
     'Session complete',
     '',
@@ -285,18 +315,6 @@ export function renderSessionSummary (receipt) {
       return [`-${formatUsdtBaseUnits(activity.amountBaseUnits)}`, label, activity.status]
     })
     lines.push('', 'Activity', ...renderTable(['Amount', 'Resource / recipient', 'Status'], rows, '  '))
-  }
-  const children = childSandboxes(receipt)
-  if (children.length > 0) {
-    const rows = children.map((child) => [
-      child.name,
-      shortAddress(child.address),
-      formatUsdtBaseUnits(child.delegatedBudgetBaseUnits),
-      formatUsdtBaseUnits(child.usdtReturnedToParentBaseUnits ?? 0),
-      childStatus(child)
-    ])
-    lines.push('', 'Delegated sandboxes',
-      ...renderTable(['Child', 'Address', 'Budget', 'Returned', 'Status'], rows, '  '))
   }
   lines.push('')
   lines.push(`Gas back    ${formatEthBaseUnits(receipt.ethReturnedToTreasuryWei)}`)

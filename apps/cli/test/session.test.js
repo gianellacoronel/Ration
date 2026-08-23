@@ -120,15 +120,14 @@ test('finalizes totals and renders purchases, transfers, returns, and disposal',
 
   assert.equal(receipt.totalUsdtSpentBaseUnits, '70000')
   assert.equal(receipt.unrecoveredUsdtBaseUnits, '0')
-  assert.match(lines, /Budget      0\.10 USDT/)
-  assert.match(lines, /Spent       0\.07 USDT/)
-  assert.match(lines, /Amount\s+Resource \/ recipient\s+Status/)
-  assert.match(lines, /-0\.02 USDT\s+deep-research\s+confirmed/)
-  assert.match(lines, /-0\.05 USDT\s+0x5e4700\.\.\.f214\s+confirmed/)
-  assert.match(lines, /Gas back    0\.00014 ETH/)
-  assert.match(lines, /Sandbox     disposed/)
-  assert.match(lines, /Delegated sandboxes/)
-  assert.match(lines, /research\s+0xaA12ce\.\.\.fc08\s+0\.02 USDT\s+0\.02 USDT\s+closed \/ disposed/)
+  assert.match(lines, /Session 11111111/)
+  assert.match(lines, /root\s+0\.10 USDT/)
+  assert.match(lines, /├── research\s+0\.02 USDT/)
+  assert.match(lines, /│   spent\s+0\.00 USDT/)
+  assert.match(lines, /│   returned\s+0\.02 USDT/)
+  assert.match(lines, /└── root available\s+0\.03 USDT/)
+  assert.match(lines, /Total spent\s+0\.07 USDT/)
+  assert.match(lines, /Returned\s+0\.03 USDT/)
 
   const details = renderSessionDetails(receipt).join('\n')
   assert.match(details, /Ration session 11111111/)
@@ -138,6 +137,43 @@ test('finalizes totals and renders purchases, transfers, returns, and disposal',
   assert.match(details, /USDT returned\s+0\.02 USDT/)
   assert.match(details, /research USDT funding\s+0xchildfund\s+confirmed/)
   assert.doesNotMatch(details, /schemaVersion|amountBaseUnits|transactions":/)
+})
+
+test('renders the one-child acceptance financial tree', () => {
+  const value = session({ budgetBaseUnits: 500000n })
+  value.receipt.usdtReturnedToTreasuryBaseUnits = '440000'
+  value.receipt.sandboxTree = {
+    rootId: 'root',
+    nodes: [{
+      id: 'root', name: 'root', parentId: null, address: '0xroot', status: 'open'
+    }, {
+      id: 'root/1',
+      name: 'research',
+      parentId: 'root',
+      address: '0xresearch',
+      delegatedBudgetBaseUnits: '200000',
+      usdtReturnedToParentBaseUnits: '140000',
+      status: 'closed',
+      disposalStatus: 'disposed'
+    }]
+  }
+  const receipt = finalizeSessionReceipt(value, {
+    initialUsdtBalance: 500000n,
+    finalUsdtBalance: 440000n
+  })
+
+  assert.equal(renderSessionSummary(receipt).join('\n'), [
+    'Session 11111111',
+    '',
+    'root                 0.50 USDT',
+    '├── research         0.20 USDT',
+    '│   spent            0.06 USDT',
+    '│   returned         0.14 USDT',
+    '└── root available   0.44 USDT',
+    '',
+    'Total spent          0.06 USDT',
+    'Returned             0.44 USDT'
+  ].join('\n'))
 })
 
 test('persists private atomic JSON and reads recent receipts', async () => {

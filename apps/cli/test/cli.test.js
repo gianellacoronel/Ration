@@ -11,6 +11,7 @@ import {
   createWdkOutputFilter,
   main as cliMain,
   runRequestedCommand,
+  runSubagentCommand,
   runWdkGetAddress,
   runWdkGetEthBalance,
   runWdkGetNetworkConfig,
@@ -277,6 +278,34 @@ test('launches the requested command directly without leaking WDK credentials', 
     if (previousSeedFile === undefined) delete process.env.WDK_SEED_FILE
     else process.env.WDK_SEED_FILE = previousSeedFile
   }
+})
+
+test('captures a subagent result without leaking WDK credentials', async () => {
+  const child = new EventEmitter()
+  child.stdout = new PassThrough()
+  child.stderr = new PassThrough()
+  child.kill = () => true
+  let invocation
+  const result = runSubagentCommand('opencode', ['run', 'research'], {
+    env: { WDK_SEED: 'root-secret', SAFE: 'yes' },
+    spawnProcess: (...args) => {
+      invocation = args
+      return child
+    }
+  })
+  child.stdout.write('Research summary\n')
+  child.stderr.write('progress\n')
+  child.emit('close', 0, null)
+
+  assert.deepEqual(await result, {
+    code: 0,
+    signal: null,
+    stdout: 'Research summary',
+    stderr: 'progress'
+  })
+  assert.deepEqual(invocation[2].stdio, ['ignore', 'pipe', 'pipe'])
+  assert.equal(invocation[2].env.SAFE, 'yes')
+  assert.equal('WDK_SEED' in invocation[2].env, false)
 })
 
 test('hard child cancellation escalates from SIGTERM to SIGKILL', async () => {

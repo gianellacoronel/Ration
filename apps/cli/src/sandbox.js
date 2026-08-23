@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto'
 
+import WDK from '@tetherto/wdk'
 import WalletManagerEvm from '@tetherto/wdk-wallet-evm'
 
 import { USDT_ADDRESS } from './config.js'
+import { createReadOnlyMcpService } from './mcp.js'
 
 const FUNDING_TIMEOUT_MS = 180000
 const FUNDING_POLL_MS = 2000
@@ -32,7 +34,8 @@ async function confirmedTransaction (account, hash) {
 export async function createEphemeralSandbox (config, options = {}) {
   const WalletManager = options.WalletManager ?? WalletManagerEvm
   const seed = (options.randomBytes ?? randomBytes)(64)
-  let wallet
+  const Wdk = options.WDK ?? WDK
+  let wdk
   let account
   let disposed = false
 
@@ -47,26 +50,32 @@ export async function createEphemeralSandbox (config, options = {}) {
       disposalError = error
     }
     try {
-      wallet?.dispose()
+      wdk?.dispose()
     } catch (error) {
       disposalError ??= error
     }
 
     seed.fill(0)
     account = undefined
-    wallet = undefined
+    wdk = undefined
     if (disposalError) throw disposalError
   }
 
   try {
-    wallet = new WalletManager(seed, config)
-    account = await wallet.getAccount(0)
+    wdk = new Wdk(seed).registerWallet('sepolia', WalletManager, config)
+    account = await wdk.getAccount('sepolia', 0)
     const address = await account.getAddress()
 
     return {
       address,
       getUsdtBalance: () => account.getTokenBalance(USDT_ADDRESS),
       getEthBalance: () => account.getBalance(),
+      openReadOnlyMcp: (mcpOptions) => createReadOnlyMcpService(
+        seed,
+        config,
+        address,
+        mcpOptions
+      ),
       async quoteLifecycleGas (recipient) {
         const tokenQuote = await account.quoteTransfer({
           token: USDT_ADDRESS,

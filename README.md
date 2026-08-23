@@ -7,7 +7,7 @@ Persistent standard Sepolia EOA (WDK CLI)
         ↓ small ETH gas reserve + exact USDT budget
 Ephemeral in-memory standard Sepolia EOA
         ↓
-Restricted WDK MCP (next integration)
+Read-only WDK MCP (address + balances)
         ↓
 Agent
         ↓ sweep USDT, then recover ETH
@@ -19,7 +19,7 @@ Agent
 - **Treasury:** the official WDK CLI wallet `rationtreasury`, used on the built-in standard `sepolia` network. It is a persistent EOA, encrypted at rest, human-owned, and unlocked only for a treasury operation.
 - **Sandbox:** a fresh official `@tetherto/wdk-wallet-evm` EOA created inside each `ration run` process. It has no WDK CLI registration, passphrase, persisted catalog entry, Smart Account, bundler, or paymaster.
 
-Ration generates 64 cryptographically random bytes of sandbox seed material in mutable memory. It does not create or display a mnemonic. Cleanup calls the documented WDK account and wallet `dispose()` methods, zeroes Ration's seed buffer, and drops its references.
+Ration generates 64 cryptographically random bytes of sandbox seed material in mutable memory. It does not create or display a mnemonic. The same buffer is passed directly to the official WDK core used by the MCP Toolkit, avoiding an immutable mnemonic conversion. Cleanup calls the documented WDK disposal methods, zeroes Ration's own seed buffer, and drops its references. This is best-effort process-memory hygiene, not a guarantee that every runtime or dependency copy has been erased.
 
 ## Requirements
 
@@ -41,6 +41,8 @@ ration setup
 # Fund the one displayed EOA address with both test USDT and Sepolia ETH.
 
 ration status
+ration run --budget 0.5 -- opencode
+# Or: ration run --budget 0.5 -- codex
 ration run --budget 0.5 -- node -e "console.log('Hello from the sandbox')"
 ```
 
@@ -63,10 +65,11 @@ The normal session lifecycle is:
 5. Add a small buffer and dry-run the treasury's ETH and USDT transfers through the official CLI.
 6. Fail before confirmation or broadcast unless the treasury has the exact USDT budget and enough ETH for all session infrastructure.
 7. Provision the ephemeral EOA with its small ETH reserve, then transfer the exact requested USDT budget.
-8. Lock the treasury and launch the command after both balances are visible in the sandbox.
-9. On child exit or interruption, sweep the full remaining USDT balance first.
-10. Return any remaining ETH whose value exceeds its native transfer fee.
-11. Dispose the SDK account and manager, zero Ration's seed buffer, and drop references.
+8. Lock the treasury and start a read-only MCP server backed by the same ephemeral seed.
+9. Launch OpenCode or Codex with transient local stdio MCP configuration after both balances are visible.
+10. On child exit or interruption, close the MCP server and its WDK resources.
+11. Sweep the full remaining USDT balance first, then return economical ETH.
+12. Dispose the sandbox SDK account and manager, zero Ration's seed buffer, and drop references.
 
 The confirmation preview keeps budget and infrastructure separate:
 
@@ -77,18 +80,26 @@ Gas reserve   0.000... ETH (infrastructure)
 
 The user budget is always USDT. Sepolia ETH is provisioned only for lifecycle gas and is never added to, deducted from, or described as the agent budget.
 
-## MCP Status
+## MCP Access
 
-The lifecycle and ownership boundary are implemented, but the launched command is not yet connected to wallet tools. Until the restricted MCP integration lands, the child cannot transact with the ephemeral wallet.
+`ration run` attaches an official `@tetherto/wdk-mcp-toolkit` server to OpenCode and Codex without writing either agent's configuration files. The agent starts a local stdio bridge connected to a private, session-only Unix socket; the seed remains in the parent Ration process and is never placed in command arguments, environment variables, configuration files, or logs.
 
-The intended integration is the official WDK MCP Toolkit configured only from in-memory sandbox material. It must not connect to the WDK CLI daemon or expose the treasury. Its `close()` lifecycle will join the existing sweep-and-dispose `finally` boundary.
+The server registers one `sepolia` wallet and exactly three official read-only tools:
+
+- `getAddress`
+- `getBalance` for native Sepolia ETH, returned as both formatted ETH and canonical wei
+- `getTokenBalance` for Sepolia USDT
+
+No transfer, signing, quote, pricing, indexer, protocol, or custom marketplace tools are registered. The MCP WDK derives the account independently and Ration fails closed if its address does not exactly match the funded sandbox. It never connects to the WDK CLI daemon and cannot see `rationtreasury`.
 
 ## Security Model
 
 - The treasury remains in official WDK CLI encrypted storage.
 - Normal sessions never register a sandbox with the WDK CLI.
 - Sandbox seed bytes, account, and manager exist only in the Ration process.
-- Sandbox secrets are never printed, passed in the child environment, or persisted by Ration.
+- Sandbox secrets are never printed, passed in child arguments or environment, or persisted by Ration.
+- The MCP server exposes only address and balance reads for the ephemeral Sepolia account.
+- MCP resources close before sweeping and final sandbox disposal.
 - Treasury balance reads, dry runs, and transfers use structured official WDK CLI output.
 - Sandbox reads, quotes, transfers, confirmation waits, and disposal use current standard EVM WDK APIs.
 - Treasury solvency is checked independently for the exact USDT budget and ETH infrastructure requirement.
@@ -103,7 +114,7 @@ This project targets Sepolia and test USDT. WDK packages are beta software; use 
 ```bash
 npm run ration -- setup
 npm run ration -- status
-npm run ration -- run --budget 0.5 -- node -e "console.log('Hello from the sandbox')"
+npm run ration -- run --budget 0.5 -- opencode
 npm test
 ```
 

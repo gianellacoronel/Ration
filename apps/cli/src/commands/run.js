@@ -83,6 +83,7 @@ export async function runCommand (args, options, output) {
   let budgetSubmitted = false
   let fundingAsset = 'USDT'
   let sandboxDisposed = false
+  let mcp
 
   try {
     sandbox = await createSandbox(standard.walletConfig)
@@ -164,11 +165,13 @@ export async function runCommand (args, options, output) {
           output.log(`Sandbox   ${sandbox.address}`)
           output.log(`Budget    ${formatUsdtBaseUnits(initialUsdt)}`)
           output.log('Gas       Sepolia ETH infrastructure reserve')
-          output.log('Access    restricted WDK MCP not connected yet')
+          mcp = await sandbox.openReadOnlyMcp(options.mcpOptions)
+          output.log('Access    read-only WDK MCP (address, USDT, Sepolia ETH)')
           output.log('')
           output.log(`Starting ${input.command}...`)
           commandAttempted = true
-          const result = await execute(input.command, input.commandArgs)
+          const launch = mcp.configureLaunch(input.command, input.commandArgs)
+          const result = await execute(launch.command, launch.args, { env: launch.env })
           exitCode = childExitCode(result)
         }
       }
@@ -189,6 +192,15 @@ export async function runCommand (args, options, output) {
         if (!(await lockWallets(new Set([TREASURY_NAME]), options, output))) exitCode = 1
       } catch {
         output.error('Security cleanup failed: the treasury could not be locked.')
+        exitCode = 1
+      }
+    }
+
+    if (mcp) {
+      try {
+        await mcp.close()
+      } catch {
+        output.error('Security cleanup failed: the read-only sandbox MCP server could not be closed.')
         exitCode = 1
       }
     }

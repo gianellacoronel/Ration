@@ -6,8 +6,11 @@ export const activeChildren = new Set()
 
 export function runRequestedCommand (command, args, options = {}) {
   const spawnProcess = options.spawnProcess ?? spawn
-  const env = { ...process.env }
+  const env = { ...(options.env ?? process.env) }
   delete env.WDK_PASSPHRASE
+  delete env.WDK_SEED
+  delete env.WDK_SEED_COMMAND
+  delete env.WDK_SEED_FILE
 
   return new Promise((resolve, reject) => {
     let child

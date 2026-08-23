@@ -8,7 +8,7 @@ Commands:
 
 Getting started:
   ration setup
-  ration run --budget 1 -- claude`
+  ration run --budget 1 -- opencode`
 
 export const TREASURY_NAME = 'rationtreasury'
 export const NETWORK = 'sepolia'

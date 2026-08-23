@@ -92,6 +92,13 @@ function createSandbox (events, overrides = {}) {
       events.push(['sweep-eth', recipient])
       return { amount: 25000n, fee: 21000n, remaining: 5000n }
     },
+    openReadOnlyMcp: async () => {
+      events.push(['open-mcp'])
+      return {
+        configureLaunch: (command, args) => ({ command, args, env: process.env }),
+        close: async () => events.push(['close-mcp'])
+      }
+    },
     dispose: () => events.push(['dispose']),
     ...overrides
   }
@@ -215,11 +222,17 @@ test('uses structured official CLI output for wallet listing and locking', async
   ])
 })
 
-test('launches the requested command directly without leaking WDK_PASSPHRASE', async () => {
+test('launches the requested command directly without leaking WDK credentials', async () => {
   const child = new EventEmitter()
   let invocation
   const previous = process.env.WDK_PASSPHRASE
+  const previousSeed = process.env.WDK_SEED
+  const previousSeedCommand = process.env.WDK_SEED_COMMAND
+  const previousSeedFile = process.env.WDK_SEED_FILE
   process.env.WDK_PASSPHRASE = 'must-not-leak'
+  process.env.WDK_SEED = 'must-not-leak'
+  process.env.WDK_SEED_COMMAND = 'must-not-leak'
+  process.env.WDK_SEED_FILE = 'must-not-leak'
   try {
     const result = runRequestedCommand('node', ['-e', 'console.log(1)'], {
       spawnProcess: (...args) => {
@@ -231,9 +244,18 @@ test('launches the requested command directly without leaking WDK_PASSPHRASE', a
     assert.deepEqual(await result, { code: 0, signal: null })
     assert.equal(invocation[2].stdio, 'inherit')
     assert.equal('WDK_PASSPHRASE' in invocation[2].env, false)
+    assert.equal('WDK_SEED' in invocation[2].env, false)
+    assert.equal('WDK_SEED_COMMAND' in invocation[2].env, false)
+    assert.equal('WDK_SEED_FILE' in invocation[2].env, false)
   } finally {
     if (previous === undefined) delete process.env.WDK_PASSPHRASE
     else process.env.WDK_PASSPHRASE = previous
+    if (previousSeed === undefined) delete process.env.WDK_SEED
+    else process.env.WDK_SEED = previousSeed
+    if (previousSeedCommand === undefined) delete process.env.WDK_SEED_COMMAND
+    else process.env.WDK_SEED_COMMAND = previousSeedCommand
+    if (previousSeedFile === undefined) delete process.env.WDK_SEED_FILE
+    else process.env.WDK_SEED_FILE = previousSeedFile
   }
 })
 
@@ -370,7 +392,7 @@ test('run provisions ETH, transfers the exact USDT budget, locks, then sweeps US
   assert.deepEqual(events.map((event) => event[0]), [
     'create-ephemeral', 'unlock', 'treasury-address', 'quote-lifecycle',
     'preview-usdt', 'preview-eth', 'fund-eth', 'gas-confirmed', 'fund-usdt',
-    'lock', 'funding-confirmed', 'command', 'sandbox-usdt', 'sweep-usdt',
+    'lock', 'funding-confirmed', 'open-mcp', 'command', 'close-mcp', 'sandbox-usdt', 'sweep-usdt',
     'sweep-eth', 'dispose'
   ])
   assert.equal(logs.includes('Budget        1.00 USDT'), true)
@@ -503,7 +525,7 @@ test('USDT sweep failure still attempts ETH recovery and disposal', async () => 
   assert.equal(exitCode, 1)
   assert.match(errors.join('\n'), /USD₮ remainder/)
   assert.doesNotMatch(errors.join('\n'), /provider detail/)
-  assert.deepEqual(events.slice(-3).map((event) => event[0]), ['sweep-usdt', 'sweep-eth', 'dispose'])
+  assert.deepEqual(events.slice(-5).map((event) => event[0]), ['close-mcp', 'sandbox-usdt', 'sweep-usdt', 'sweep-eth', 'dispose'])
 })
 
 test('a disposal failure is reported without claiming the sandbox was disposed', async () => {
@@ -539,7 +561,31 @@ test('Ctrl+C stops the child, then sweeps USDT, returns ETH, and disposes', asyn
   })
   const exitCode = await main(['run', '--budget', '1', '--', 'agent'], { output, ...options })
   assert.equal(exitCode, 130)
-  assert.deepEqual(events.slice(-5).map((event) => event[0]), ['kill', 'sandbox-usdt', 'sweep-usdt', 'sweep-eth', 'dispose'])
+  assert.deepEqual(events.slice(-6).map((event) => event[0]), ['kill', 'close-mcp', 'sandbox-usdt', 'sweep-usdt', 'sweep-eth', 'dispose'])
+})
+
+test('an MCP close failure is reported but does not prevent wallet recovery', async () => {
+  const { errors, output } = captureOutput()
+  const events = []
+  const sandbox = createSandbox(events, {
+    openReadOnlyMcp: async () => ({
+      configureLaunch: (command, args) => ({ command, args, env: process.env }),
+      close: async () => {
+        events.push(['close-mcp'])
+        throw new Error('close detail')
+      }
+    })
+  })
+  const exitCode = await main(['run', '--budget', '1', '--', 'agent'], {
+    output,
+    ...successfulRunOptions(events, { sandbox })
+  })
+  assert.equal(exitCode, 1)
+  assert.match(errors.join('\n'), /MCP server could not be closed/)
+  assert.doesNotMatch(errors.join('\n'), /close detail/)
+  assert.deepEqual(events.slice(-5).map((event) => event[0]), [
+    'close-mcp', 'sandbox-usdt', 'sweep-usdt', 'sweep-eth', 'dispose'
+  ])
 })
 
 test('cleanup treats an already locked treasury as secure', async () => {

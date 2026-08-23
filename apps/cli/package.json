@@ -16,7 +16,11 @@
     "wdk": "wdk"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@tetherto/wdk": "1.0.0-beta.16",
     "@tetherto/wdk-cli": "1.0.0-beta.3",
-    "@tetherto/wdk-wallet-evm": "1.0.0-beta.17"
+    "@tetherto/wdk-mcp-toolkit": "https://github.com/tetherto/wdk-mcp-toolkit/archive/d821898d6e629f17df9eb46e4d1e1180e13b6148.tar.gz",
+    "@tetherto/wdk-wallet-evm": "1.0.0-beta.17",
+    "zod": "4.4.3"
   }
 }

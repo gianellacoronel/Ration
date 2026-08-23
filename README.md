@@ -258,6 +258,13 @@ and never require `ration recover`.
 
 `ration run` attaches an official `@tetherto/wdk-mcp-toolkit` server to OpenCode and Codex without writing either agent's configuration files. The agent starts a local stdio bridge connected to a private, session-only Unix socket; the seed remains in the parent Ration process and is never placed in command arguments, environment variables, configuration files, or logs.
 
+Ration is visible only inside the child process started by `ration run`; running
+`codex mcp list` or starting `codex` separately will not show it. In Codex, its
+tools appear under the `mcp__ration__` namespace. Ration also supplies transient
+session instructions identifying its paid research catalog so Codex does not
+mistake the absence of providers such as Bloomberg or PitchBook for the absence
+of the attached Ration resources.
+
 The root server registers one `sepolia` wallet and eight scoped tools:
 
 - `getAddress`

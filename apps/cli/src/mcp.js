@@ -698,7 +698,16 @@ function configureOpenCode (args, env, bridgeCommand, enabledTools) {
 
 function configureCodex (args, env, bridgeCommand, enabledTools) {
   const [command, ...commandArgs] = bridgeCommand
+  const developerInstructions = [
+    'Ration has attached a required session-scoped MCP server named `ration`.',
+    `Its enabled tools are: ${enabledTools.join(', ')}.`,
+    'These tools may appear in Codex as `mcp__ration__<tool>`.',
+    'Treat `ration_getCatalog` as the available paid research catalog and call it before claiming that no paid data source or company context is available.',
+    'For research requests, inspect `ration_getRemainingBalance`, inspect the catalog, and use `ration_purchaseResource` as appropriate within the disposable sandbox budget.',
+    'The absence of Bloomberg, PitchBook, or similar connectors does not mean the Ration paid resources are unavailable.'
+  ].join(' ')
   const config = [
+    `developer_instructions=${tomlString(developerInstructions)}`,
     `mcp_servers.${SERVER_NAME}.command=${tomlString(command)}`,
     `mcp_servers.${SERVER_NAME}.args=[${commandArgs.map(tomlString).join(',')}]`,
     `mcp_servers.${SERVER_NAME}.enabled_tools=[${enabledTools.map(tomlString).join(',')}]`,

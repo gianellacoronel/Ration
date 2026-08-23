@@ -1,182 +1,95 @@
 # Ration
 
-Ration gives an AI command a disposable, budgeted financial sandbox while keeping the human treasury persistent and separate.
+> Give every agent process its own money, not access to your treasury.
+
+Ration is an installable CLI that launches an AI command with a recoverable, isolated Sepolia wallet funded with an exact USDT budget. Tether WDK powers the treasury operations, ephemeral EOA, balances, transfers, and restricted MCP wallet access.
+
+**Aleph Hackathon 2026** | **WDK Track** | **Track 1: Build with the WDK CLI**
+
+[npm](https://www.npmjs.com/package/ration-ai) | [GitHub](https://github.com/gianellacoronel/Ration) | [WDK Track](https://hacki.crecimiento.build/h/aleph-hackathon-2026/tracks/wdk-track) | **Demo video: TODO**
+
+## The Problem
+
+An agent may need money to complete a task, but giving its process the treasury wallet makes every treasury fund part of the failure boundary. The process needs a limited balance and limited wallet access only for the lifetime of that task.
+
+## The Solution
+
+Ration keeps a human-owned WDK CLI treasury separate and gives each `ration run` a fresh standard EOA with an explicit test-USDT budget and a small ETH gas reserve. The treasury is locked before the command starts; the command receives a restricted MCP wallet, and unused funds are swept back when the command exits or its financial TTL expires.
+
+## How It Works
 
 ```text
-Persistent standard Sepolia EOA (WDK CLI)
-        ↓ small ETH gas reserve + exact USDT budget
-Recoverable session-specific standard Sepolia EOA
-        ↓
-Restricted Ration MCP (catalog + purchase + balances + USDT transfer)
-        ↓
-Agent
-        ↓ sweep USDT, then recover ETH
-        ↓ dispose keys
+Human
+  |
+  | ration run --budget 0.10 --ttl 15m -- codex
+  v
+Ration CLI
+  |-- WDK CLI: unlock treasury, quote + fund sandbox, lock treasury
+  |-- WDK EVM: create one recoverable session EOA
+  `-- WDK MCP Toolkit: expose scoped wallet and purchase tools
+                              |
+                              v
+                      Codex / OpenCode
+
+Exit or TTL -> revoke financial tools -> sweep USDT, then ETH
+            -> dispose WDK resources -> persist receipt
 ```
 
-## Wallet Model
+The financial TTL can close wallet access without killing the child process. `--hard-ttl` also terminates the child. Authenticated recovery journals let `ration recover` reconstruct and sweep a funded sandbox after an exceptional crash.
 
-- **Treasury:** the official WDK CLI wallet `rationtreasury`, used on the built-in standard `sepolia` network. It is a persistent EOA, encrypted at rest, human-owned, and unlocked only for a treasury operation.
-- **Sandbox:** a fresh official `@tetherto/wdk-wallet-evm` EOA created inside each `ration run` process. It has no WDK CLI registration, passphrase, persisted catalog entry, Smart Account, bundler, or paymaster.
+## WDK Integration
 
-Ration generates a random session ID and derives 64 bytes of sandbox seed material
-with HKDF-SHA-256 from that ID and a recovery root kept in the OS credential
-store. It does not create or display a mnemonic or persist the derived seed. The
-same mutable buffer is passed directly to the official WDK core used by the MCP
-Toolkit, avoiding an immutable mnemonic conversion. Cleanup calls the documented
-WDK disposal methods, zeroes Ration's own seed buffer, and drops its references.
-This is best-effort process-memory hygiene, not a guarantee that every runtime or
-dependency copy has been erased.
+WDK is in Ration's core execution path. If the official CLI, EVM wallet module, or WDK account cannot be initialized, the session fails before the agent receives wallet access.
 
-## Requirements
-
-- Node.js 22.18.0 or newer
-- npm
-- The official WDK CLI `sepolia` network configured with a working Sepolia RPC
-- Codex installed and authenticated (or another supported MCP client)
-- A dedicated Sepolia EOA to receive demo payments; it must not be the Ration treasury
-- Test USDT at `0xd077A400968890Eacc75cdc901F0356c943e4fDb`
-- Sepolia ETH for infrastructure gas
-
-The repository includes an `.nvmrc` matching the Node.js version required by the WDK CLI. The WDK CLI already ships the standard `sepolia` network and both Sepolia asset definitions.
-
-## Judge Quickstart
-
-### 1. Install
-
-```bash
-npm install --global ration-ai
-```
-
-For repository development instead, run `npm install` and `npm link --workspace
-ration-ai` from the repository root.
-
-### 2. Configure The Paid Resource API
-
-Create `apps/web/.env.local` from the included example:
-
-```bash
-cp apps/web/.env.example apps/web/.env.local
-```
-
-Set these two required variables:
-
-```dotenv
-# A Sepolia JSON-RPC endpoint used by the web API to verify payments on-chain.
-RATION_DEMO_RPC_URL=https://sepolia.infura.io/v3/YOUR_KEY
-
-# A dedicated Sepolia EOA that receives marketplace payments.
-# Do not use rationtreasury or an ephemeral Ration sandbox address.
-RATION_DEMO_SELLER_ADDRESS=0xYOUR_DEDICATED_DEMO_SELLER_ADDRESS
-```
-
-No seller private key is required by Ration. The address only receives test
-USDT. It must be a real non-zero EVM address and must remain separate from
-`rationtreasury`.
-
-The following web API variables are optional and should normally be left at
-their defaults for the judged Sepolia flow:
-
-| Variable | Default | Purpose |
+| Package | Installed version | Used for |
 | --- | --- | --- |
-| `RATION_DEMO_USDT_ADDRESS` | `0xd077A400968890Eacc75cdc901F0356c943e4fDb` | Official Sepolia test USDT contract |
-| `RATION_DEMO_CHAIN_ID` | `11155111` | Sepolia chain ID |
-| `RATION_DEMO_REDEMPTIONS_PATH` | OS temporary directory | Persistent ledger preventing transaction-hash reuse |
+| `@tetherto/wdk` | `1.0.0-beta.16` | Create and dispose session and child WDK instances |
+| `@tetherto/wdk-cli` | `1.0.0-beta.3` | Persistent treasury creation, unlock/lock, balances, dry runs, and funding |
+| `@tetherto/wdk-wallet-evm` | `1.0.0-beta.17` | Standard Sepolia EOA accounts, quotes, transfers, confirmation waits, and sweeps |
+| `@tetherto/wdk-mcp-toolkit` | `1.0.0-beta.1` at `d821898` | Session-only MCP wallet server and base wallet tools |
 
-The CLI uses `https://ration-ten.vercel.app` by default. For local development,
-set `RATION_DEMO_API_URL` in the shell that launches Ration:
+Exact installed sources are declared in [`apps/cli/package.json`](https://github.com/gianellacoronel/Ration/blob/634bdce45ee0c0eb19cca16fcdc9e82641aa0a9b/apps/cli/package.json#L42-L49).
 
-```bash
-export RATION_DEMO_API_URL=http://localhost:3000
-```
+**Direct source permalinks (audited commit `634bdce`):**
 
-`RATION_DEMO_API_URL` selects only the configured demo origin. Resource paths
-still come from its validated catalog, and cross-origin redirects are rejected.
+- [WDK CLI process adapter and treasury operations](https://github.com/gianellacoronel/Ration/blob/634bdce45ee0c0eb19cca16fcdc9e82641aa0a9b/apps/cli/src/wdk.js#L18-L257)
+- [Ephemeral WDK EOA creation, balances, quotes, sweeps, and disposal](https://github.com/gianellacoronel/Ration/blob/634bdce45ee0c0eb19cca16fcdc9e82641aa0a9b/apps/cli/src/sandbox.js#L41-L259)
+- [Treasury checks, funding, lock, TTL, cleanup, and receipts](https://github.com/gianellacoronel/Ration/blob/634bdce45ee0c0eb19cca16fcdc9e82641aa0a9b/apps/cli/src/commands/run.js#L148-L740)
+- [Restricted MCP balance, catalog, purchase, and transfer tools](https://github.com/gianellacoronel/Ration/blob/634bdce45ee0c0eb19cca16fcdc9e82641aa0a9b/apps/cli/src/mcp.js#L264-L503)
+- [WDK MCP server, wallet, token, and tool registration](https://github.com/gianellacoronel/Ration/blob/634bdce45ee0c0eb19cca16fcdc9e82641aa0a9b/apps/cli/src/mcp.js#L599-L639)
+- [Optional child-wallet derivation, funding, recovery, and disposal](https://github.com/gianellacoronel/Ration/blob/634bdce45ee0c0eb19cca16fcdc9e82641aa0a9b/apps/cli/src/sandbox-hierarchy.js#L16-L468)
 
-Do not set wallet seeds, private keys, `WDK_PASSPHRASE`, `WDK_SEED`,
-`WDK_SEED_COMMAND`, or `WDK_SEED_FILE`. Treasury unlocking stays interactive,
-and Ration removes WDK credential variables before launching the agent.
+## Demo
 
-### 3. Start The Demo API
+**Recorded demo:** TODO - add the final submission video URL.
 
-From the repository root, keep this running in the first terminal:
-
-```bash
-npm run dev
-```
-
-Verify the configured catalog returns HTTP 200 and lists the four deterministic
-resources at `0.01`, `0.03`, `0.06`, and `0.50 USDT`:
-
-```bash
-curl http://localhost:3000/api/demo/catalog
-```
-
-### 4. Set Up And Fund Ration
-
-In a second terminal:
-
-```bash
-ration setup
-# Fund the displayed treasury EOA with at least 0.10 test USDT and Sepolia ETH.
-
-ration status
-```
-
-`ration setup` creates or reuses the persistent WDK CLI treasury and displays its standard Sepolia EOA address. Fund that same address with test USDT and Sepolia ETH. WDK owns the interactive passphrase, encryption, backup, and storage flow; Ration never reads the treasury passphrase or seed.
-
-For throwaway development environments only, `ration setup --insecure` creates the treasury with an empty passphrase.
-
-The treasury is infrastructure for funding and recovery only. It is never
-attached to Codex, exposed through MCP, or used as the demo seller.
-
-### 5. Run The Acceptance Demo
-
-```bash
-ration run --budget 0.10 --ttl 15m -- codex
-```
-
-Unlock the treasury when WDK prompts, approve sandbox funding, and then give
-Codex only this prompt:
-
-```text
-Produce the best company research brief you can with the resources available to you.
-```
-
-Codex can inspect the catalog and its remaining balance, then decide which
-resource IDs to purchase. The `premium-dataset` costs `0.50 USDT`, so a real
-`0.10 USDT` sandbox cannot buy every listing. Exit Codex to trigger cleanup;
-the final receipt shows each purchase or direct transfer and the recovered funds.
-
-A one-shot Codex invocation is also supported:
+The repository includes a local paid-resource API. The acceptance flow funds a real Sepolia sandbox, lets the agent choose resources that fit its budget, records confirmed test-USDT payments, and returns the remainder:
 
 ```bash
 ration run --budget 0.10 --ttl 15m -- codex exec \
   "Produce the best company research brief you can with the resources available to you."
 ```
 
-## Running A Session
+Unlock the treasury when WDK prompts and approve the funding preview. The final receipt reports the resources or transfers the agent actually selected, the funds returned, and sandbox disposal; the `0.50 USDT` premium resource cannot fit inside this `0.10 USDT` budget.
+
+## Quick Start
+
+### Option A - Install the published CLI
+
+Requires Node.js `>=22.18.0`, a working OS credential store, Sepolia test funds, and an installed, authenticated Codex or OpenCode client.
 
 ```bash
-ration run --budget <amount> [--ttl <duration>] [--hard-ttl] -- <command> [args...]
+npm install --global ration-ai
+ration setup
+ration status
+ration run --budget 0.10 --ttl 15m -- codex
 ```
 
-The normal session lifecycle is:
+`ration setup` creates or reuses the encrypted WDK CLI wallet `rationtreasury`. Fund the address it prints with Sepolia ETH and [Sepolia test USDT](https://github.com/gianellacoronel/Ration/blob/634bdce45ee0c0eb19cca16fcdc9e82641aa0a9b/apps/cli/src/config.js#L15-L20) before running a session. The WDK CLI is bundled with `ration-ai`; no separate global WDK installation is required.
 
-1. Validate the official standard Sepolia EVM configuration.
-2. Derive one session-specific standard WDK EOA from a recovery root held by the OS credential store. Derived seed bytes exist only in memory and are zeroed on disposal.
-3. Unlock the persistent treasury and read its USDT and ETH balances.
-4. Quote gas for up to five catalog purchases, the sandbox's USDT sweep, and native ETH return through the official SDK.
-5. Add a small buffer and dry-run the treasury's ETH and USDT transfers through the official CLI.
-6. Fail before confirmation or broadcast unless the treasury has the exact USDT budget and enough ETH for all session infrastructure.
-7. Provision the ephemeral EOA with its small ETH reserve, then transfer the exact requested USDT budget.
-8. Lock the treasury and start a restricted MCP server backed by the same ephemeral seed.
-9. Launch the requested supported MCP client with transient local stdio configuration after both balances are visible.
-10. On child exit or interruption, close the MCP server and its WDK resources.
-11. Sweep the full remaining USDT balance first, then return economical ETH.
-12. Dispose the sandbox SDK account and manager, zero Ration's seed buffer, and drop references.
-13. Persist a structured financial receipt after cleanup finishes.
+### Option B - Run from source
 
+<<<<<<< HEAD
 `--ttl` limits the financial session, not the child command. Its countdown starts
 when the USDT budget is confirmed. At expiration Ration rejects new MCP writes,
 waits for already-broadcast payments to settle, sweeps USDT and economical
@@ -319,25 +232,124 @@ This demonstrates the core capability: *the agent can be compromised without com
 - Session activity, including any injection-driven transfer, is recorded and reported as it actually happened.
 
 This project targets Sepolia and test USDT. WDK packages are beta software; use test networks and test amounts.
+=======
+Follow the clean-clone setup below. Use this option to run the included paid-resource demo.
+>>>>>>> d69f065 (feat: update README.md)
 
 ## Local Development
 
+### Prerequisites
+
+- Node.js `22.19.0` from `.nvmrc` (`22.18.0` is the minimum)
+- npm and Git/GitHub access for the Git-hosted MCP Toolkit dependency
+- A working OS credential store: macOS Keychain, Linux Secret Service, or Windows Credential Vault
+- Codex or OpenCode installed and authenticated
+- A dedicated Sepolia seller EOA, Sepolia ETH, and test USDT
+
+### Clean clone
+
 ```bash
+git clone https://github.com/gianellacoronel/Ration.git
+cd Ration
+nvm install
+nvm use
+npm ci
+cp apps/web/.env.example apps/web/.env.local
+```
+
+Configure `apps/web/.env.local` with the demo submission values. The seller is a dedicated EOA and must never be replaced with the Ration treasury address:
+
+```dotenv
+# Sepolia JSON-RPC endpoint used by the demo payment verifier.
+RATION_DEMO_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/alch_ftrlU6LX6XIlD2o4C9ujS
+
+# Dedicated EOA that receives demo payments. It is never derived from Ration,
+# the WDK CLI, or the rationtreasury wallet.
+RATION_DEMO_SELLER_ADDRESS=0x5e47df5E239Fc0585b878692D2e8f6d53455f214
+```
+
+Then start the demo API:
+
+```bash
+npm run dev
+```
+
+Verify the five-resource catalog from another terminal:
+
+```bash
+curl http://localhost:3000/api/demo/catalog
+```
+
+In a second terminal, inspect the built-in standard Sepolia configuration and set up Ration:
+
+```bash
+npm run wdk --workspace ration-ai -- config get --network sepolia --json
 npm run ration -- setup
 npm run ration -- status
-npm run ration -- run --budget 0.10 -- codex
-npm test
 ```
 
-Run the project-local official WDK CLI directly:
+If the built-in public provider is unavailable, replace only its provider value:
 
 ```bash
-npm run wdk -- --help
+npm run wdk --workspace ration-ai -- config set \
+  --network sepolia --key provider --value https://YOUR_SEPOLIA_RPC
 ```
 
-## Official Sources
+Fund the treasury address shown by setup with Sepolia ETH and test USDT, then run. Ration does not provide a faucet or mint test tokens.
 
-- [WDK documentation](https://docs.wdk.tether.io/)
-- [WDK CLI documentation](https://docs.wdk.tether.io/cli/)
-- [WDK standard EVM module](https://github.com/tetherto/wdk-wallet-evm)
-- [WDK MCP Toolkit](https://docs.wdk.tether.io/ai/mcp-toolkit/)
+```bash
+npm run ration -- run --budget 0.10 --ttl 15m -- codex
+```
+
+Setup and treasury unlock are interactive. WDK owns the treasury passphrase, encrypted storage, and backup flow; Ration does not read or persist those credentials. `ration setup --insecure` is available only for throwaway development and creates an empty-passphrase treasury.
+
+### Environment
+
+`apps/web/.env.local` configures the demo API. CLI-only variables must be set in the shell that launches `ration`.
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `RATION_DEMO_RPC_URL` | Yes | Sepolia HTTP(S) RPC used by the web API to verify payment receipts |
+| `RATION_DEMO_SELLER_ADDRESS` | Yes | Dedicated non-zero EOA that receives demo test-USDT payments; not the treasury |
+| `RATION_DEMO_TESTNET_ATTACKER_ADDRESS` | No | Separate Sepolia sink embedded in the adversarial demo resource; defaults to zero address |
+| `RATION_DEMO_USDT_ADDRESS` | No | Must remain the built-in Sepolia test-USDT address if set |
+| `RATION_DEMO_CHAIN_ID` | No | Must remain `11155111` if set |
+| `RATION_DEMO_REDEMPTIONS_PATH` | No | Overrides the demo's local transaction-redemption ledger path |
+| `RATION_DEMO_API_URL` | No | CLI demo origin; defaults to `http://localhost:3000` |
+| `RATION_DATA_HOME` | No | Overrides the CLI receipt and recovery-journal directory |
+
+Do not place seeds, private keys, or passphrases in these files. Ration removes `WDK_PASSPHRASE`, `WDK_SEED`, `WDK_SEED_COMMAND`, and `WDK_SEED_FILE` before launching the agent.
+
+## Network and Token
+
+| Field | Value |
+| --- | --- |
+| Environment | Testnet only |
+| Network | Ethereum Sepolia |
+| Chain ID | `11155111` |
+| Budget token | Test USDT, 6 decimals |
+| Token contract | [`0xd077A400968890Eacc75cdc901F0356c943e4fDb`](https://sepolia.etherscan.io/address/0xd077A400968890Eacc75cdc901F0356c943e4fDb) |
+| Gas token | Sepolia ETH |
+| Wallet type | Standard EOA; no smart account, bundler, or paymaster |
+
+> **Security warning:** WDK packages are beta. Use dedicated test wallets with limited testnet funds. Never use a personal wallet or real funds for development.
+
+## Current Scope
+
+The hackathon build implements:
+
+- `setup`, `status`, `run`, `history`, and crash-safe `recover` CLI commands
+- One recoverable root sandbox per run and, through MCP, at most one child sandbox
+- Exact USDT budgeting, ETH gas provisioning, balance checks, treasury locking, financial TTL, fund recovery, disposal, and receipts
+- Restricted MCP access for address/balance reads, USDT transfers, the fixed demo catalog and purchases, and one child delegation
+- Native transient MCP launch adapters for Codex and OpenCode
+- A local five-resource HTTP `402` demo API with on-chain Sepolia payment verification
+
+This version is Sepolia-only. It does not implement mainnet, gasless/AA wallets, signing, arbitrary transactions, swaps, bridges, lending, fiat flows, or standard x402. Executables other than Codex and OpenCode require their own adapter for the emitted `RATION_MCP_*` bridge metadata.
+
+## Built With
+
+- Node.js ESM CLI
+- Tether WDK, WDK CLI, EVM wallet module, and MCP Toolkit
+- Model Context Protocol SDK
+- Next.js/TypeScript demo API

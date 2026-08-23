@@ -114,7 +114,7 @@ export function CliSection() {
             </p>
           </div>
 
-          <div className="min-w-0 overflow-hidden rounded-sm border border-ration-cream/20 bg-terminal desktop:w-full desktop:max-w-[46rem] desktop:justify-self-end">
+          <div className="min-w-0 overflow-hidden rounded-sm border border-ration-cream/20 bg-terminal desktop:w-full desktop:max-w-184 desktop:justify-self-end">
             <div className="flex h-12 items-center justify-between border-b border-ration-cream/15 px-4 mobile:px-5">
               <span className="flex items-center gap-2 font-mono text-[0.625rem] tracking-[0.14em] text-ration-orange uppercase">
                 <Terminal size={16} /> ration / cli
@@ -126,7 +126,7 @@ export function CliSection() {
             </div>
 
             <div
-              className="overflow-x-auto border-b border-ration-cream/15 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              className="overflow-x-auto border-b border-ration-cream/15 scrollbar-none [&::-webkit-scrollbar]:hidden"
               role="tablist"
               aria-label="CLI commands"
             >
@@ -174,7 +174,7 @@ export function CliSection() {
                 <button
                   type="button"
                   onClick={copyCommand}
-                  className="flex min-h-11 min-w-[6.75rem] cursor-pointer items-center justify-center gap-2 rounded-sm border border-ration-cream/15 px-3 font-mono text-[0.6875rem] text-ration-cream/65 outline-none transition-colors hover:border-ration-orange hover:text-ration-orange focus-visible:border-ration-orange focus-visible:text-ration-orange"
+                  className="flex min-h-11 min-w-27 cursor-pointer items-center justify-center gap-2 rounded-sm border border-ration-cream/15 px-3 font-mono text-[0.6875rem] text-ration-cream/65 outline-none transition-colors hover:border-ration-orange hover:text-ration-orange focus-visible:border-ration-orange focus-visible:text-ration-orange"
                   aria-label={`Copy ${activeCommand.command}`}
                 >
                   {copyFeedback === "copied" ? <Check size={15} /> : <Copy size={15} />}
@@ -186,7 +186,7 @@ export function CliSection() {
                 </button>
               </div>
 
-              <div className="min-h-[5rem] border-b border-ration-cream/15 p-4 mobile:p-6">
+              <div className="min-h-20 border-b border-ration-cream/15 p-4 mobile:p-6">
                 <pre className="text-[0.75rem] leading-6 whitespace-pre-wrap text-ration-cream mobile:text-[0.8125rem]">
                   <code>
                     <span className="select-none text-ration-orange" aria-hidden="true">
@@ -197,7 +197,7 @@ export function CliSection() {
                 </pre>
               </div>
 
-              <div className="min-h-[16.5rem] p-4 mobile:min-h-[18.75rem] mobile:p-6">
+              <div className="min-h-66 p-4 mobile:min-h-75 mobile:p-6">
                 <pre
                   key={activeCommand.id}
                   className="animate-fade-in font-mono text-[0.6875rem] leading-6 whitespace-pre-wrap text-ration-cream/58 mobile:text-xs mobile:leading-7"

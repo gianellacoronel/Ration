@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Menu, Moon, Sun, X } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ArrowRight, Menu, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { getStartedHref, navigation } from "@/config/navigation";
-import { themeConfig, type Theme } from "@/config/theme";
 
 const linkStyles =
   "font-mono text-xs uppercase tracking-[0.08em] text-muted transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange";
@@ -13,14 +12,6 @@ const linkStyles =
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
-  const theme = useSyncExternalStore(
-    (onChange) => {
-      window.addEventListener("ration-theme-change", onChange);
-      return () => window.removeEventListener("ration-theme-change", onChange);
-    },
-    () => (document.documentElement.dataset.theme ?? themeConfig.defaultTheme) as Theme,
-    () => themeConfig.defaultTheme,
-  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -28,14 +19,6 @@ export function Navbar() {
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, [isOpen]);
-
-  function toggleTheme() {
-    const current = document.documentElement.dataset.theme ?? themeConfig.defaultTheme;
-    const next = current === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem(themeConfig.storageKey, next);
-    window.dispatchEvent(new Event("ration-theme-change"));
-  }
 
   return (
     <header ref={headerRef} className="sticky top-0 z-50 border-b bg-background">
@@ -72,15 +55,6 @@ export function Navbar() {
           >
             Run CLI <ArrowRight size={17} strokeWidth={1.8} />
           </a>
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="flex size-10 cursor-pointer items-center justify-center border text-foreground transition-colors hover:border-ration-orange hover:text-ration-orange focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ration-orange"
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-            title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-          >
-            {theme === "dark" ? <Moon size={19} strokeWidth={1.8} /> : <Sun size={19} strokeWidth={1.8} />}
-          </button>
           <button
             type="button"
             className="flex size-10 cursor-pointer items-center justify-center border text-foreground tablet:hidden"

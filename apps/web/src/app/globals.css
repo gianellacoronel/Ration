@@ -1,7 +1,6 @@
 @import "tailwindcss";
 
-:root,
-:root[data-theme="dark"] {
+:root {
   color-scheme: dark;
   --ration-orange: #f74f06;
   --ration-orange-dark: #d94100;
@@ -18,18 +17,6 @@
   --ration-border: rgb(255 224 163 / 0.18);
   --ration-terminal: #151515;
   --ration-success: #ffe0a3;
-}
-
-:root[data-theme="light"] {
-  color-scheme: light;
-  --ration-bg: #f6f1e7;
-  --ration-bg-soft: #ffe8bd;
-  --ration-fg: #1c1c1c;
-  --ration-muted: rgb(28 28 28 / 0.64);
-  --ration-faint: rgb(28 28 28 / 0.38);
-  --ration-border: rgb(28 28 28 / 0.15);
-  --ration-terminal: #1c1c1c;
-  --ration-success: #f74f06;
 }
 
 @theme inline {

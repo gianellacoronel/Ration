@@ -7,7 +7,6 @@ import {
 } from "next/font/google";
 
 import { rationConfig } from "@/config/ration";
-import { themeConfig } from "@/config/theme";
 
 import "./globals.css";
 
@@ -58,17 +57,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      data-theme={themeConfig.defaultTheme}
-      suppressHydrationWarning
       className={`${bodyFont.variable} ${monoFont.variable} ${displayFont.variable} ${handwrittenFont.variable} h-full antialiased`}
     >
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `try{var t=localStorage.getItem('${themeConfig.storageKey}');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}`,
-          }}
-        />
-      </head>
       <body className="flex min-h-full flex-col">{children}</body>
     </html>
   );

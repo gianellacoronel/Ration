@@ -26,13 +26,15 @@ import { formatEthBaseUnits, formatUsdtBaseUnits } from './domain.js'
 const CHAIN = 'sepolia'
 const SERVER_NAME = 'ration'
 const TRANSACTION_TIMEOUT_MS = 180000
+const TRANSACTION_POLL_MS = 1000
 const MCP_TOOL_TIMEOUT_SECONDS = 240
 const CONFIRMED_TRANSFER = Symbol('confirmedTransfer')
 
 async function confirmedTransaction (account, hash) {
   const receipt = await account.waitForTransaction(hash, {
     target: 'confirmed',
-    timeout: TRANSACTION_TIMEOUT_MS
+    timeout: TRANSACTION_TIMEOUT_MS,
+    interval: TRANSACTION_POLL_MS
   })
   if (receipt.finality === 'dropped' || receipt.success === false) {
     throw new Error('The sandbox transfer was not confirmed successfully.')
@@ -201,7 +203,8 @@ Args:
           resourceId,
           account,
           fetchImpl,
-          wait
+          wait,
+          transferWaitsForConfirmation: true
         })
         unlockedPayloads.set(resourceId, result.payload)
         const paidText = result.txHash

@@ -105,7 +105,7 @@ test('purchases the catalog resource with the sandbox account and retries with i
   assert.deepEqual(events, [
     ['balance', USDT_ADDRESS],
     ['transfer', { token: USDT_ADDRESS, recipient: SELLER, amount: 20000n }],
-    ['confirm', TX_HASH, { target: 'confirmed', timeout: 120000 }],
+    ['confirm', TX_HASH, { target: 'confirmed', timeout: 120000, interval: 1000 }],
     ['wait', 500]
   ])
   assert.deepEqual(requests.map(([url]) => url), [

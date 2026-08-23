@@ -7,6 +7,7 @@ export const PAYMENT_TX_HEADER = 'x-payment-tx-hash'
 
 const REQUEST_TIMEOUT_MS = 15000
 const CONFIRM_TIMEOUT_MS = 120000
+const CONFIRM_POLL_MS = 1000
 const RETRY_DELAYS_MS = [500, 2000, 4000, 8000]
 const HEX_ADDRESS = /^0x[0-9a-fA-F]{40}$/
 
@@ -190,7 +191,8 @@ export async function purchaseResourceViaDemoApi ({
   resourceId,
   account,
   fetchImpl = fetch,
-  wait = sleep
+  wait = sleep,
+  transferWaitsForConfirmation = false
 }) {
   const catalogResponse = await requestJson(fetchImpl, `${origin}/api/demo/catalog`)
   if (catalogResponse.status !== 200) {
@@ -231,12 +233,17 @@ export async function purchaseResourceViaDemoApi ({
     amount: requirements.amountBaseUnits
   })
 
-  const receipt = await account.waitForTransaction(payment.hash, {
-    target: 'confirmed',
-    timeout: CONFIRM_TIMEOUT_MS
-  })
-  if (receipt.finality === 'dropped' || receipt.success === false) {
-    throw new DemoPaymentError('The payment transaction failed on-chain.', { txHash: payment.hash })
+  // MCP wraps transfers with its own confirmation wait so low-level and
+  // autonomous transfers share one in-flight operation during shutdown.
+  if (!transferWaitsForConfirmation) {
+    const receipt = await account.waitForTransaction(payment.hash, {
+      target: 'confirmed',
+      timeout: CONFIRM_TIMEOUT_MS,
+      interval: CONFIRM_POLL_MS
+    })
+    if (receipt.finality === 'dropped' || receipt.success === false) {
+      throw new DemoPaymentError('The payment transaction failed on-chain.', { txHash: payment.hash })
+    }
   }
 
   for (const [attempt, delay] of RETRY_DELAYS_MS.entries()) {

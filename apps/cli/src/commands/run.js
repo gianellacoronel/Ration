@@ -34,6 +34,23 @@ import {
   transferFailureMessage
 } from './shared.js'
 
+const PROGRESS_UPDATE_MS = 10000
+
+async function withProgress (output, label, operation) {
+  const startedAt = Date.now()
+  output.log(`  ${label}...`)
+  const timer = setInterval(() => {
+    const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+    output.log(`  Still ${label.toLowerCase()} (${seconds}s elapsed)...`)
+  }, PROGRESS_UPDATE_MS)
+  timer.unref?.()
+  try {
+    return await operation()
+  } finally {
+    clearInterval(timer)
+  }
+}
+
 function parseRunArgs (args) {
   if (args.length < 5 || args[0] !== 'run' || args[1] !== '--budget' ||
     !args[2] || args[2].startsWith('--') || args[3] !== '--' || !args[4]) return null
@@ -144,21 +161,30 @@ export async function runCommand (args, options, output) {
       } else if (await confirm() !== true) {
         output.log('Session cancelled. Nothing was broadcast.')
       } else {
+        output.log('')
+        output.log('Funding sandbox')
         throwIfInterrupted(options.signal)
         fundingAsset = 'ETH'
         gasSubmitted = true
+        output.log('  Submitting Sepolia ETH gas reserve...')
         await transfer({ ...gasInput, dryRun: false })
-        gasConfirmed = await awaitGas(sandbox, gasReserve, { signal: options.signal })
+        gasConfirmed = await withProgress(output, 'Waiting for gas confirmation on Sepolia',
+          () => awaitGas(sandbox, gasReserve, { signal: options.signal }))
+        output.log('  Gas reserve confirmed.')
         throwIfInterrupted(options.signal)
 
         fundingAsset = 'USDT'
         budgetSubmitted = true
+        output.log(`  Submitting ${formatUsdtBaseUnits(input.budget)} budget...`)
         await transfer({ ...budgetInput, dryRun: false })
+        output.log('  Budget transaction submitted.')
         if (!(await lockWallets(new Set([TREASURY_NAME]), options, output))) {
           exitCode = 1
         } else {
           treasuryOpen = false
-          initialUsdt = await awaitFunding(sandbox, input.budget, { signal: options.signal })
+          initialUsdt = await withProgress(output, 'Waiting for budget confirmation on Sepolia',
+            () => awaitFunding(sandbox, input.budget, { signal: options.signal }))
+          output.log('  Budget confirmed.')
           throwIfInterrupted(options.signal)
           output.log('Ration')
           output.log('')
@@ -187,6 +213,11 @@ export async function runCommand (args, options, output) {
       printWalletError(error, output, treasuryOpen ? 'Treasury' : 'Sandbox')
     }
   } finally {
+    if (commandAttempted) {
+      output.log('')
+      output.log('Closing session')
+    }
+
     if (treasuryOpen) {
       try {
         if (!(await lockWallets(new Set([TREASURY_NAME]), options, output))) exitCode = 1
@@ -198,7 +229,13 @@ export async function runCommand (args, options, output) {
 
     if (mcp) {
       try {
-        await mcp.close()
+        if (commandAttempted) {
+          await withProgress(output, 'Revoking agent access and finishing in-flight payments',
+            () => mcp.close())
+        } else {
+          await mcp.close()
+        }
+        if (commandAttempted) output.log('  Agent access closed.')
       } catch {
         output.error('Security cleanup failed: the sandbox MCP server could not be closed.')
         exitCode = 1
@@ -227,12 +264,20 @@ export async function runCommand (args, options, output) {
       try {
         finalUsdt = await sandbox.getUsdtBalance()
         if (finalUsdt > 0n) {
-          const sweep = await sandbox.sweepUsdt(treasuryAddress)
+          const sweep = commandAttempted
+            ? await withProgress(output,
+                `Returning ${formatUsdtBaseUnits(finalUsdt)} and waiting for confirmation`,
+                () => sandbox.sweepUsdt(treasuryAddress))
+            : await sandbox.sweepUsdt(treasuryAddress)
           returnedUsdt = sweep.amount
           if (returnedUsdt === 0n || (sweep.remaining ?? 0n) > 0n) {
             output.error(`The remaining ${formatUsdtBaseUnits(finalUsdt)} could not be swept to the treasury.`)
             exitCode = 1
+          } else if (commandAttempted) {
+            output.log('  Remaining USDT returned.')
           }
+        } else if (commandAttempted) {
+          output.log('  No USDT remained to return.')
         }
       } catch {
         output.error('Security cleanup failed: the sandbox USD₮ remainder could not be swept to the treasury.')
@@ -242,8 +287,13 @@ export async function runCommand (args, options, output) {
 
     if (sandbox && gasSubmitted) {
       try {
-        const sweep = await sandbox.sweepEth(treasuryAddress)
+        const sweep = commandAttempted
+          ? await withProgress(output,
+              'Returning unused Sepolia ETH and waiting for confirmation',
+              () => sandbox.sweepEth(treasuryAddress))
+          : await sandbox.sweepEth(treasuryAddress)
         returnedEth = sweep.amount
+        if (commandAttempted) output.log('  Sepolia ETH recovery complete.')
       } catch {
         output.error('Security cleanup failed: recoverable sandbox ETH could not be returned to the treasury.')
         exitCode = 1
@@ -254,6 +304,7 @@ export async function runCommand (args, options, output) {
       try {
         sandbox.dispose()
         sandboxDisposed = true
+        if (commandAttempted) output.log('  Sandbox disposed.')
       } catch {
         output.error('Security cleanup failed: the ephemeral WDK sandbox could not be disposed.')
         exitCode = 1

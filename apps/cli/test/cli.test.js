@@ -425,6 +425,12 @@ test('run reports the demo acceptance totals and preserves cleanup order', async
   assert.deepEqual(errors, [])
   assert.equal(logs.includes('Spent      0.02 USDT'), true)
   assert.equal(logs.includes('Returned   0.08 USDT'), true)
+  assert.equal(logs.includes('Funding sandbox'), true)
+  assert.equal(logs.includes('  Waiting for gas confirmation on Sepolia...'), true)
+  assert.equal(logs.includes('  Waiting for budget confirmation on Sepolia...'), true)
+  assert.equal(logs.includes('Closing session'), true)
+  assert.equal(logs.includes('  Returning 0.08 USDT and waiting for confirmation...'), true)
+  assert.equal(logs.includes('  Returning unused Sepolia ETH and waiting for confirmation...'), true)
   assert.equal(logs.at(-1), 'Sandbox    disposed')
   assert.deepEqual(events.slice(-5).map((event) => event[0]), [
     'close-mcp', 'sandbox-usdt', 'sweep-usdt', 'sweep-eth', 'dispose'

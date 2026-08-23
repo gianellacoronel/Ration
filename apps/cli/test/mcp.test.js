@@ -172,7 +172,7 @@ test('serves the existing reads and confirmed Sepolia USDT transfer for the same
     assert.deepEqual(events.filter((event) => event[0] === 'confirmed'), [[
       'confirmed',
       '0xpayment',
-      { target: 'confirmed', timeout: 180000 }
+      { target: 'confirmed', timeout: 180000, interval: 1000 }
     ]])
     assert.equal(confirmations.length, 1)
     assert.match(confirmations[0].message, /Amount: 0\.05 USDT \(50000 base units\)/)
@@ -269,10 +269,9 @@ test('catalog discovery and purchase need no manual payment details or elicitati
       { token: USDT_ADDRESS, recipient: DEMO_SELLER, amount: 20000n }
     ]])
     assert.equal(events.some((event) => event[0] === 'quote-transfer'), false)
-    assert.deepEqual(events.filter((event) => event[0] === 'confirmed'), [
-      ['confirmed', '0xpayment', { target: 'confirmed', timeout: 180000 }],
-      ['confirmed', '0xpayment', { target: 'confirmed', timeout: 120000 }]
-    ])
+    assert.deepEqual(events.filter((event) => event[0] === 'confirmed'), [[
+      'confirmed', '0xpayment', { target: 'confirmed', timeout: 180000, interval: 1000 }
+    ]])
   } finally {
     await client.close()
     await service.close()

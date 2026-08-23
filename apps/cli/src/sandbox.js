@@ -7,7 +7,8 @@ import { USDT_ADDRESS } from './config.js'
 import { createSandboxMcpService } from './mcp.js'
 
 const FUNDING_TIMEOUT_MS = 180000
-const FUNDING_POLL_MS = 2000
+const CHAIN_POLL_MS = 1000
+const FUNDING_POLL_MS = CHAIN_POLL_MS
 const GAS_RESERVE_NUMERATOR = 125n
 const GAS_RESERVE_DENOMINATOR = 100n
 
@@ -24,7 +25,8 @@ export function lifecycleGasReserve (tokenFee, nativeFee) {
 async function confirmedTransaction (account, hash) {
   const receipt = await account.waitForTransaction(hash, {
     target: 'confirmed',
-    timeout: FUNDING_TIMEOUT_MS
+    timeout: FUNDING_TIMEOUT_MS,
+    interval: CHAIN_POLL_MS
   })
   if (receipt.finality === 'dropped' || receipt.success === false) {
     throw new Error('The sandbox transaction was not confirmed successfully.')

@@ -173,6 +173,8 @@ The normal session lifecycle is:
 11. Sweep the full remaining USDT balance first, then return economical ETH.
 12. Dispose the sandbox SDK account and manager, zero Ration's seed buffer, and drop references.
 
+Sepolia funding and recovery each require two confirmed transactions, so their duration follows testnet block production and RPC latency. Ration reports every submission and recovery phase, prints elapsed-time updates every 10 seconds, and polls for confirmations once per second; it does not skip confirmation or return ETH before the USDT sweep is safely confirmed.
+
 The confirmation preview keeps budget and infrastructure separate:
 
 ```text

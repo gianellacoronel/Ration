@@ -114,7 +114,7 @@ test('sweeps the full USDT balance before returning economical ETH', async () =>
       return { hash: '0xeth', fee: 21000n }
     },
     waitForTransaction: async (hash, options) => {
-      events.push(['confirm', hash, options.target])
+      events.push(['confirm', hash, options])
       return { finality: 'confirmed', success: true }
     },
     dispose: () => {}
@@ -135,6 +135,10 @@ test('sweeps the full USDT balance before returning economical ETH', async () =>
   assert.deepEqual(events.map((event) => event[0]), [
     'quote-usdt', 'send-usdt', 'confirm',
     'quote-eth', 'quote-eth', 'send-eth', 'confirm', 'quote-eth'
+  ])
+  assert.deepEqual(events.filter((event) => event[0] === 'confirm'), [
+    ['confirm', '0xusdt', { target: 'confirmed', timeout: 180000, interval: 1000 }],
+    ['confirm', '0xeth', { target: 'confirmed', timeout: 180000, interval: 1000 }]
   ])
   sandbox.dispose()
 })
@@ -171,6 +175,18 @@ test('funding waits poll independent USDT and ETH balances', async () => {
   assert.equal(await waitForSandboxGas({
     getEthBalance: async () => eth.shift()
   }, 90000n, options), 90000n)
+})
+
+test('funding balance detection polls once per second by default', async () => {
+  const balances = [0n, 1000000n]
+  const delays = []
+  assert.equal(await waitForSandboxFunding({
+    getUsdtBalance: async () => balances.shift()
+  }, 1000000n, {
+    timeoutMs: 10000,
+    sleep: async (delay) => delays.push(delay)
+  }), 1000000n)
+  assert.deepEqual(delays, [1000])
 })
 
 test('funding waits stop before a balance read when aborted', async () => {

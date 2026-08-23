@@ -1,4 +1,5 @@
 import { ArrowRight, Bot, Coins, GitFork, LockKeyhole, Terminal } from "lucide-react";
+import Image from "next/image";
 
 import { TerminalDemo } from "@/components/terminal-demo";
 import { getStartedHref, githubHref } from "@/config/navigation";
@@ -9,6 +10,19 @@ export function Hero() {
       <div className="mx-auto max-w-content px-gutter py-12 tablet:py-16 desktop:py-14 wide:flex wide:min-h-[calc(100svh-4.5rem)] wide:items-center wide:py-10">
         <div className="relative grid w-full gap-y-10 tablet:gap-y-12 desktop:grid-cols-[minmax(19rem,0.82fr)_minmax(30rem,1.18fr)] desktop:items-center desktop:gap-x-[clamp(4rem,7vw,7rem)]">
           <div className="relative z-10 min-w-0 [container-type:inline-size]">
+            <div className="mb-7 flex w-fit items-center gap-3 border-l-2 border-ration-orange pl-3">
+              <span className="font-mono text-[0.6rem] font-medium uppercase tracking-[0.14em] text-muted">
+                Built with
+              </span>
+              <Image
+                src="/wdk-logo-dark.png"
+                alt="Tether WDK"
+                width={142}
+                height={51}
+                className="h-auto w-28 mobile:w-32"
+                priority
+              />
+            </div>
             <h1 id="hero-title" className="display-type text-[clamp(2.75rem,18cqw,8rem)] leading-[0.82] text-foreground desktop:text-[clamp(4rem,21cqw,7.5rem)] desktop:leading-[0.84]">
               <span className="block whitespace-nowrap">Give</span>
               <span className="block whitespace-nowrap">Every</span>

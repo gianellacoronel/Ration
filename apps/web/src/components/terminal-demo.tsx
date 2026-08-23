@@ -317,12 +317,12 @@ export function TerminalDemo() {
         <div className="grid gap-2" aria-label="Demo commands">
           {terminalCommandOptions.map((option) => (
             <div
-              className="flex min-w-0 items-stretch rounded-sm border border-ration-cream/15 transition-colors focus-within:border-ration-orange hover:border-ration-cream/35"
+              className="flex min-w-0 items-stretch rounded-sm border border-ration-cream/15 transition-[border-color,background-color,box-shadow] duration-200 focus-within:border-ration-orange hover:border-ration-orange/70 hover:bg-ration-orange/[0.04] hover:shadow-[0_0_22px_rgba(247,79,6,0.2)]"
               key={option.name}
             >
               <button
                 type="button"
-                className="min-h-11 min-w-0 flex-1 cursor-pointer overflow-x-auto px-3 py-2.5 text-left font-mono text-[0.6875rem] whitespace-nowrap text-ration-cream/65 outline-none disabled:cursor-wait disabled:opacity-45 mobile:text-xs"
+                className="min-h-11 min-w-0 flex-1 cursor-pointer overflow-x-auto px-3 py-2.5 text-left font-mono text-[0.6875rem] whitespace-nowrap text-ration-cream/65 outline-none transition-[color,background-color,transform] [-webkit-tap-highlight-color:rgba(247,79,6,0.18)] hover:text-ration-cream active:scale-[0.99] active:bg-ration-orange/15 active:text-ration-cream disabled:cursor-wait disabled:opacity-45 mobile:text-xs"
                 disabled={isExecuting}
                 onClick={() => execute(option.name)}
                 aria-label={`Run ${option.value}`}
@@ -331,7 +331,7 @@ export function TerminalDemo() {
               </button>
               <button
                 type="button"
-                className="flex min-h-11 w-[4.75rem] shrink-0 cursor-pointer items-center justify-center gap-1.5 border-l border-ration-cream/15 px-2 font-mono text-[0.625rem] text-ration-cream/60 outline-none transition-colors hover:text-ration-orange focus-visible:text-ration-orange"
+                className="flex min-h-11 w-[4.75rem] shrink-0 cursor-pointer items-center justify-center gap-1.5 border-l border-ration-cream/15 px-2 font-mono text-[0.625rem] text-ration-cream/60 outline-none transition-[color,background-color,transform] [-webkit-tap-highlight-color:rgba(247,79,6,0.18)] hover:bg-ration-orange/[0.08] hover:text-ration-orange focus-visible:text-ration-orange active:scale-[0.97] active:bg-ration-orange/20 active:text-ration-orange"
                 onClick={() => copy(option.name, option.value)}
                 aria-label={`Copy ${option.value}`}
               >

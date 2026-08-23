@@ -6,7 +6,7 @@ Ration is an installable CLI that launches an AI command with a recoverable, iso
 
 **Aleph Hackathon 2026** | **WDK Track** | **Track 1: Build with the WDK CLI**
 
-[npm](https://www.npmjs.com/package/ration-ai) | [GitHub](https://github.com/gianellacoronel/Ration) | [WDK Track](https://hacki.crecimiento.build/h/aleph-hackathon-2026/tracks/wdk-track) | **Demo video: TODO**
+[npm](https://www.npmjs.com/package/ration-ai) | [GitHub](https://github.com/gianellacoronel/Ration) | [WDK Track](https://hacki.crecimiento.build/h/aleph-hackathon-2026/tracks/wdk-track)
 
 ## The Problem
 
@@ -60,8 +60,6 @@ Exact installed sources are declared in [`apps/cli/package.json`](https://github
 - [Optional child-wallet derivation, funding, recovery, and disposal](https://github.com/gianellacoronel/Ration/blob/634bdce45ee0c0eb19cca16fcdc9e82641aa0a9b/apps/cli/src/sandbox-hierarchy.js#L16-L468)
 
 ## Demo
-
-**Recorded demo:** TODO - add the final submission video URL.
 
 The repository includes a local paid-resource API. The acceptance flow funds a real Sepolia sandbox, lets the agent choose resources that fit its budget, records confirmed test-USDT payments, and returns the remainder:
 

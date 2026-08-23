@@ -8,7 +8,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   WdkMcpServer,
   getAddress,
-  getTokenBalance
+  getTokenBalance,
+  transfer
 } from '@tetherto/wdk-mcp-toolkit'
 import WalletManagerEvm from '@tetherto/wdk-wallet-evm'
 import { z } from 'zod'
@@ -61,7 +62,7 @@ function getSepoliaBalance (server) {
   )
 }
 
-const READ_ONLY_TOOLS = [getAddress, getSepoliaBalance, getTokenBalance]
+const SANDBOX_TOOLS = [getAddress, getSepoliaBalance, getTokenBalance, transfer]
 
 export function resolveMcpBridgePath () {
   return fileURLToPath(new URL('../bin/mcp-bridge.js', import.meta.url))
@@ -132,7 +133,7 @@ function configureCodex (args, env, bridgeCommand) {
   const config = [
     `mcp_servers.${SERVER_NAME}.command=${tomlString(command)}`,
     `mcp_servers.${SERVER_NAME}.args=[${commandArgs.map(tomlString).join(',')}]`,
-    `mcp_servers.${SERVER_NAME}.enabled_tools=["getAddress","getBalance","getTokenBalance"]`,
+    `mcp_servers.${SERVER_NAME}.enabled_tools=["getAddress","getBalance","getTokenBalance","transfer"]`,
     `mcp_servers.${SERVER_NAME}.required=true`
   ]
   return {
@@ -141,7 +142,7 @@ function configureCodex (args, env, bridgeCommand) {
   }
 }
 
-export async function createReadOnlyMcpService (seed, config, expectedAddress, options = {}) {
+export async function createSandboxMcpService (seed, config, expectedAddress, options = {}) {
   const McpServer = options.WdkMcpServer ?? WdkMcpServer
   const WalletManager = options.WalletManager ?? WalletManagerEvm
   const createSocketServer = options.createSocketServer ?? createServer
@@ -152,7 +153,7 @@ export async function createReadOnlyMcpService (seed, config, expectedAddress, o
     .useWdk({ seed })
     .registerWallet(CHAIN, WalletManager, config)
     .registerToken(CHAIN, 'USDT', { address: USDT_ADDRESS, decimals: 6 })
-    .registerTools(READ_ONLY_TOOLS)
+    .registerTools(SANDBOX_TOOLS)
   let directory
   let socketServer
   let connection

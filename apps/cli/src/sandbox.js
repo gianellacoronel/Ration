@@ -4,7 +4,7 @@ import WDK from '@tetherto/wdk'
 import WalletManagerEvm from '@tetherto/wdk-wallet-evm'
 
 import { USDT_ADDRESS } from './config.js'
-import { createReadOnlyMcpService } from './mcp.js'
+import { createSandboxMcpService } from './mcp.js'
 
 const FUNDING_TIMEOUT_MS = 180000
 const FUNDING_POLL_MS = 2000
@@ -70,7 +70,7 @@ export async function createEphemeralSandbox (config, options = {}) {
       address,
       getUsdtBalance: () => account.getTokenBalance(USDT_ADDRESS),
       getEthBalance: () => account.getBalance(),
-      openReadOnlyMcp: (mcpOptions) => createReadOnlyMcpService(
+      openMcp: (mcpOptions) => createSandboxMcpService(
         seed,
         config,
         address,

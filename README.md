@@ -7,7 +7,7 @@ Persistent standard Sepolia EOA (WDK CLI)
         ↓ small ETH gas reserve + exact USDT budget
 Ephemeral in-memory standard Sepolia EOA
         ↓
-Read-only WDK MCP (address + balances)
+Restricted WDK MCP (address + balances + USDT transfer)
         ↓
 Agent
         ↓ sweep USDT, then recover ETH
@@ -65,7 +65,7 @@ The normal session lifecycle is:
 5. Add a small buffer and dry-run the treasury's ETH and USDT transfers through the official CLI.
 6. Fail before confirmation or broadcast unless the treasury has the exact USDT budget and enough ETH for all session infrastructure.
 7. Provision the ephemeral EOA with its small ETH reserve, then transfer the exact requested USDT budget.
-8. Lock the treasury and start a read-only MCP server backed by the same ephemeral seed.
+8. Lock the treasury and start a restricted MCP server backed by the same ephemeral seed.
 9. Launch OpenCode or Codex with transient local stdio MCP configuration after both balances are visible.
 10. On child exit or interruption, close the MCP server and its WDK resources.
 11. Sweep the full remaining USDT balance first, then return economical ETH.
@@ -84,13 +84,14 @@ The user budget is always USDT. Sepolia ETH is provisioned only for lifecycle ga
 
 `ration run` attaches an official `@tetherto/wdk-mcp-toolkit` server to OpenCode and Codex without writing either agent's configuration files. The agent starts a local stdio bridge connected to a private, session-only Unix socket; the seed remains in the parent Ration process and is never placed in command arguments, environment variables, configuration files, or logs.
 
-The server registers one `sepolia` wallet and exactly three official read-only tools:
+The server registers one `sepolia` wallet, the three existing read-only tools, and one official write tool:
 
 - `getAddress`
 - `getBalance` for native Sepolia ETH, returned as both formatted ETH and canonical wei
 - `getTokenBalance` for Sepolia USDT
+- `transfer` for Sepolia USDT; the Toolkit quotes the fee and requires explicit MCP elicitation confirmation before broadcast
 
-No transfer, signing, quote, pricing, indexer, protocol, or custom marketplace tools are registered. The MCP WDK derives the account independently and Ration fails closed if its address does not exactly match the funded sandbox. It never connects to the WDK CLI daemon and cannot see `rationtreasury`.
+No native transfer, arbitrary transaction, signing, quote, swap, bridge, wallet-management, pricing, indexer, protocol, or custom marketplace tools are registered. Sepolia is the only registered chain and USDT is the only registered token, so `transfer` cannot resolve another asset. The MCP WDK derives the account independently and Ration fails closed if its address does not exactly match the funded sandbox. It never connects to the WDK CLI daemon and cannot see `rationtreasury`.
 
 ## Security Model
 
@@ -98,7 +99,7 @@ No transfer, signing, quote, pricing, indexer, protocol, or custom marketplace t
 - Normal sessions never register a sandbox with the WDK CLI.
 - Sandbox seed bytes, account, and manager exist only in the Ration process.
 - Sandbox secrets are never printed, passed in child arguments or environment, or persisted by Ration.
-- The MCP server exposes only address and balance reads for the ephemeral Sepolia account.
+- The MCP server exposes address and balance reads plus confirmed-by-user Sepolia USDT transfers for the ephemeral account.
 - MCP resources close before sweeping and final sandbox disposal.
 - Treasury balance reads, dry runs, and transfers use structured official WDK CLI output.
 - Sandbox reads, quotes, transfers, confirmation waits, and disposal use current standard EVM WDK APIs.

@@ -82,17 +82,17 @@ function createSandbox (events, overrides = {}) {
     },
     getUsdtBalance: async () => {
       events.push(['sandbox-usdt'])
-      return 760000n
+      return 450000n
     },
     sweepUsdt: async (recipient) => {
       events.push(['sweep-usdt', recipient])
-      return { amount: 760000n, fee: 50000n, remaining: 0n }
+      return { amount: 450000n, fee: 50000n, remaining: 0n }
     },
     sweepEth: async (recipient) => {
       events.push(['sweep-eth', recipient])
       return { amount: 25000n, fee: 21000n, remaining: 5000n }
     },
-    openReadOnlyMcp: async () => {
+    openMcp: async () => {
       events.push(['open-mcp'])
       return {
         configureLaunch: (command, args) => ({ command, args, env: process.env }),
@@ -380,10 +380,10 @@ test('run fails closed before unlocking if standard Sepolia is replaced by accou
   assert.doesNotMatch(errors.join('\n'), /secret/)
 })
 
-test('run provisions ETH, transfers the exact USDT budget, locks, then sweeps USDT before ETH', async () => {
+test('run reports a confirmed 0.05 USDT payment and sweeps the remaining 0.45 before ETH', async () => {
   const { logs, errors, output } = captureOutput()
   const events = []
-  const exitCode = await main(['run', '--budget', '1', '--', 'node', '-e', 'console.log(1)'], {
+  const exitCode = await main(['run', '--budget', '0.5', '--', 'node', '-e', 'console.log(1)'], {
     output,
     ...successfulRunOptions(events)
   })
@@ -395,10 +395,11 @@ test('run provisions ETH, transfers the exact USDT budget, locks, then sweeps US
     'lock', 'funding-confirmed', 'open-mcp', 'command', 'close-mcp', 'sandbox-usdt', 'sweep-usdt',
     'sweep-eth', 'dispose'
   ])
-  assert.equal(logs.includes('Budget        1.00 USDT'), true)
+  assert.equal(logs.includes('Budget        0.50 USDT'), true)
   assert.equal(logs.some((line) => line.includes('Gas reserve') && line.includes('infrastructure')), true)
   assert.equal(logs.some((line) => /Network fee.*USDT|Total.*USDT/.test(line)), false)
-  assert.equal(logs.includes('Returned   0.76 USDT'), true)
+  assert.equal(logs.includes('Spent      0.05 USDT'), true)
+  assert.equal(logs.includes('Returned   0.45 USDT'), true)
   assert.equal(logs.at(-1), 'Sandbox    disposed')
 })
 
@@ -568,7 +569,7 @@ test('an MCP close failure is reported but does not prevent wallet recovery', as
   const { errors, output } = captureOutput()
   const events = []
   const sandbox = createSandbox(events, {
-    openReadOnlyMcp: async () => ({
+    openMcp: async () => ({
       configureLaunch: (command, args) => ({ command, args, env: process.env }),
       close: async () => {
         events.push(['close-mcp'])

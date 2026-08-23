@@ -165,8 +165,8 @@ export async function runCommand (args, options, output) {
           output.log(`Sandbox   ${sandbox.address}`)
           output.log(`Budget    ${formatUsdtBaseUnits(initialUsdt)}`)
           output.log('Gas       Sepolia ETH infrastructure reserve')
-          mcp = await sandbox.openReadOnlyMcp(options.mcpOptions)
-          output.log('Access    read-only WDK MCP (address, USDT, Sepolia ETH)')
+          mcp = await sandbox.openMcp(options.mcpOptions)
+          output.log('Access    WDK MCP (address, balances, Sepolia USDT transfer)')
           output.log('')
           output.log(`Starting ${input.command}...`)
           commandAttempted = true
@@ -200,7 +200,7 @@ export async function runCommand (args, options, output) {
       try {
         await mcp.close()
       } catch {
-        output.error('Security cleanup failed: the read-only sandbox MCP server could not be closed.')
+        output.error('Security cleanup failed: the sandbox MCP server could not be closed.')
         exitCode = 1
       }
     }

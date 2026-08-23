@@ -18,11 +18,11 @@ const variablePattern = new RegExp(
 );
 
 const commandHighlights: Record<CliCommandId, string> = {
-  setup: "Create the treasury.",
-  status: "Inspect and relock it.",
-  run: "Approve one session.",
-  recover: "Retry the return path.",
-  history: "Read the receipt.",
+  setup: "Setup the treasury.",
+  status: "Status, then relock.",
+  run: "Run with --budget + --ttl.",
+  recover: "Recover after a crash.",
+  history: "History proves cleanup.",
 };
 
 function HighlightedCommand({ command }: { command: string }) {
@@ -92,15 +92,15 @@ export function CliSection() {
         <div className="grid gap-12 desktop:grid-cols-[minmax(15rem,0.7fr)_minmax(0,1.3fr)] desktop:items-center desktop:gap-16">
           <div>
             <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">
-               Product proof / current CLI
+               Five commands / one safe lifecycle
             </p>
             <h2
               id="cli-title"
               className="display-type text-[clamp(3rem,5.5vw,5.25rem)] leading-[0.86] text-foreground"
             >
-              <span className="block whitespace-nowrap">The proof</span>
-              <span className="block whitespace-nowrap">Is in</span>
-              <span className="block whitespace-nowrap">The run.</span>
+              <span className="block whitespace-nowrap">Fund.</span>
+              <span className="block whitespace-nowrap">Run.</span>
+              <span className="block whitespace-nowrap">Recover.</span>
             </h2>
             <p className="mt-9 border-l-2 border-ration-orange pl-5 font-mono text-sm leading-7 text-muted">
               {Object.entries(commandHighlights).map(([id, label]) => (

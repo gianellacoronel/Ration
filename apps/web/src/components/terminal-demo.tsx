@@ -187,6 +187,37 @@ function CommandOutput({ command, state }: { command: CommandName; state: Termin
     );
   }
 
+  if (command === "recover") {
+    if (state !== "completed") return null;
+
+    return (
+      <div className="mt-5 text-ration-cream/60">
+        <p className="mb-2 text-ration-cream">Crash recovery</p>
+        <div className="space-y-1">
+          <Check>journal authenticated</Check>
+          <Check>session wallet re-derived</Check>
+          <Check>remaining USDT returned</Check>
+          <Check>economical ETH returned</Check>
+        </div>
+      </div>
+    );
+  }
+
+  if (command === "history") {
+    if (state !== "completed") return null;
+
+    return (
+      <div className="mt-5 text-ration-cream/60">
+        <p className="mb-2 text-ration-cream">Recent sessions</p>
+        <dl className="grid grid-cols-[6.5rem_auto]">
+          <dt>8f2a1c4d</dt><dd>0.03 USDT spent</dd>
+          <dt>Cleanup</dt><dd className="text-ration-orange">disposed</dd>
+          <dt>Command</dt><dd>{terminalDemo.process}</dd>
+        </dl>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-5">
       <RunOutput state={state} />
@@ -313,7 +344,7 @@ export function TerminalDemo() {
         <p className="mb-2.5 font-mono text-[0.625rem] font-medium tracking-[0.14em] text-ration-cream/55 uppercase">
           Commands / click to execute
         </p>
-        <div className="grid gap-2" aria-label="Demo commands">
+        <div className="grid gap-2 tablet:grid-cols-2 desktop:grid-cols-1 wide:grid-cols-2" aria-label="Demo commands">
           {terminalCommandOptions.map((option) => (
             <div
               className="flex min-w-0 items-stretch rounded-sm border border-ration-cream/15 transition-[border-color,background-color,box-shadow] duration-200 focus-within:border-ration-orange hover:border-ration-orange/70 hover:bg-ration-orange/[0.04] hover:shadow-[0_0_22px_rgba(247,79,6,0.2)]"
@@ -345,7 +376,7 @@ export function TerminalDemo() {
         </div>
       </div>
 
-      <div className="min-h-[22rem] overflow-x-auto p-4 mobile:min-h-[25rem] mobile:p-6 desktop:min-h-[28rem] desktop:p-7 wide:min-h-[20rem] wide:p-6">
+      <div className="min-h-[18rem] overflow-x-auto p-4 mobile:min-h-[20rem] mobile:p-6 desktop:min-h-[22rem] desktop:p-7 wide:min-h-[19rem] wide:p-6">
         <div
           className="min-w-max font-mono text-[0.75rem] leading-6 mobile:text-[0.8125rem] mobile:leading-7"
           role="log"

@@ -1,8 +1,8 @@
-import { Coins, Eraser, Sparkles, Terminal } from "lucide-react";
+import { Coins, Eraser, Plus, Sparkles, Terminal, Wallet } from "lucide-react";
 
 const steps = [
-  { number: "01", title: "Create", description: "Derive one in-memory wallet for this run.", Icon: Sparkles },
-  { number: "02", title: "Fund", description: "Move the exact approved budget from treasury.", Icon: Coins },
+  { number: "01", title: "Create", description: "Derive one in-memory wallet for this run.", Icon: Plus },
+  { number: "02", title: "Fund", description: "Move the exact approved budget from treasury.", Icon: Wallet },
   { number: "03", title: "Run", description: "Restricted MCP wallet access is the next integration.", Icon: Terminal },
   { number: "04", title: "Erase", description: "Sweep the remainder, then dispose every key.", Icon: Eraser },
 ];
@@ -22,10 +22,9 @@ export function HowItWorks() {
         <ol className="relative mt-16 grid gap-0 border-t desktop:grid-cols-4">
           {steps.map(({ number, title, description, Icon }) => (
             <li key={number} className="group relative grid grid-cols-[4rem_1fr] border-b py-7 desktop:block desktop:border-r desktop:border-b-0 desktop:px-6 desktop:py-9 last:border-r-0">
-              <span className="absolute -top-1.5 left-0 size-3 bg-ration-orange desktop:left-6" />
-              <span className="font-mono text-xs text-ration-orange">{number}</span>
+              <span className="absolute -top-1.5 left-0 size-3 bg-ration-orange" />
               <div>
-                <Icon size={36} strokeWidth={1.7} className="mb-8 text-foreground transition-transform group-hover:-rotate-6 desktop:mb-14" />
+                <Icon size={36} strokeWidth={1.7} className="mb-8 text-foreground transition-transform" />
                 <h3 className="display-type text-3xl">{title}</h3>
                 <p className="mt-3 max-w-[14rem] text-sm leading-6 text-muted">{description}</p>
               </div>

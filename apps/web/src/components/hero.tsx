@@ -7,11 +7,6 @@ export function Hero() {
   return (
     <section className="overflow-hidden border-b" aria-labelledby="hero-title">
       <div className="mx-auto max-w-content px-gutter py-12 tablet:py-18 desktop:py-22">
-        <div className="mb-10 flex items-center justify-between gap-6 border-b pb-4 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-muted">
-          <span>A CLI for money with boundaries</span>
-          <span className="hidden items-center gap-2 mobile:flex"><span className="size-2 bg-ration-orange" /> v0.1 / live</span>
-        </div>
-
         <div className="relative grid gap-12 desktop:grid-cols-12 desktop:items-start">
           <div className="relative z-10 desktop:col-span-8">
             <h1 id="hero-title" className="display-type max-w-[9.5ch] text-[clamp(3.75rem,10.5vw,9.25rem)] leading-[0.82] text-foreground">

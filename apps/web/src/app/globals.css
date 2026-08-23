@@ -39,7 +39,7 @@
   --font-mono: var(--font-ration-mono);
   --font-display: var(--font-ration-display);
   --font-hand: var(--font-ration-hand);
-  --spacing-section: clamp(5rem, 10vw, 9rem);
+  --spacing-section: clamp(4.5rem, 8vw, 7.5rem);
   --spacing-gutter: clamp(1.25rem, 4vw, 3rem);
   --container-content: 80rem;
   --radius-sm: 0.25rem;
@@ -76,6 +76,10 @@ code, kbd, pre, samp { font-family: var(--font-ration-mono), monospace; }
   font-family: var(--font-ration-display), sans-serif;
   text-transform: uppercase;
   letter-spacing: -0.055em;
+}
+.section-title {
+  font-size: clamp(2.5rem, 5vw, 4.75rem);
+  line-height: 0.9;
 }
 .hand-type { font-family: var(--font-ration-hand), cursive; }
 .technical-grid {

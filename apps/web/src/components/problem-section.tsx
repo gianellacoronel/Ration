@@ -7,7 +7,7 @@ export function ProblemSection() {
         <div className="grid gap-8 tablet:grid-cols-[1.25fr_0.75fr] tablet:items-end">
           <div>
             <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">The mismatch / work versus access</p>
-            <h2 id="problem-title" className="display-type max-w-[12ch] text-[clamp(2.8rem,7.5vw,6.8rem)] leading-[0.86] text-foreground">
+            <h2 id="problem-title" className="display-type section-title max-w-[14ch] text-foreground">
               Software runs one job. Wallet access outlives it.
             </h2>
           </div>
@@ -16,7 +16,7 @@ export function ProblemSection() {
           </p>
         </div>
 
-        <div className="mt-16 border-y" role="img" aria-label="A process ends while reusable wallet access continues">
+        <div className="mt-12 border-y" role="img" aria-label="A process ends while reusable wallet access continues">
           <div className="grid border-b tablet:grid-cols-[10rem_1fr]">
             <div className="flex items-center gap-3 border-b px-4 py-5 tablet:border-r tablet:border-b-0">
               <Bot size={22} strokeWidth={1.7} />

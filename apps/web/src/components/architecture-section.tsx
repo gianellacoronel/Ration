@@ -24,7 +24,7 @@ export function ArchitectureSection() {
         <div className="grid gap-12 desktop:grid-cols-[0.72fr_1.28fr] desktop:items-center">
           <div>
             <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">The answer / Ration</p>
-            <h2 id="ration-title" className="display-type max-w-[11ch] text-[clamp(3rem,6.5vw,6rem)] leading-[0.86]">The command becomes the boundary.</h2>
+            <h2 id="ration-title" className="display-type section-title max-w-[13ch]">The command becomes the boundary.</h2>
             <p className="mt-7 max-w-md text-base leading-7 text-muted">Ration keeps the persistent WDK treasury outside the agent&apos;s MCP surface and funds a separate wallet for one session.</p>
           </div>
 
@@ -50,11 +50,11 @@ export function ArchitectureSection() {
           </div>
         </div>
 
-        <ol className="mt-16 grid border-t tablet:grid-cols-2 desktop:grid-cols-3">
+        <ol className="mt-12 grid border-t tablet:grid-cols-2 desktop:grid-cols-3">
           {lifecycle.map(({ title, detail, Icon }, index) => (
             <li key={title} className="grid min-h-52 grid-cols-[2.75rem_1fr] gap-3 border-b py-7 tablet:border-r tablet:px-6 tablet:even:border-r-0 desktop:even:border-r desktop:[&:nth-child(3n)]:border-r-0">
               <span className="font-mono text-[0.65rem] text-ration-orange">{String(index + 1).padStart(2, "0")}</span>
-              <div><Icon size={28} strokeWidth={1.6} /><h3 className="display-type mt-7 text-3xl">{title}</h3><p className="mt-3 max-w-xs text-sm leading-6 text-muted">{detail}</p></div>
+              <div><Icon size={28} strokeWidth={1.6} /><h3 className="display-type mt-6 text-2xl">{title}</h3><p className="mt-3 max-w-xs text-sm leading-6 text-muted">{detail}</p></div>
             </li>
           ))}
         </ol>

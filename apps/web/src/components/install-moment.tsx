@@ -27,7 +27,7 @@ export function InstallMoment() {
           </p>
           <h2
             id="install-title"
-            className="display-type max-w-[10ch] text-[clamp(2.8rem,5.4vw,5.25rem)] leading-[0.85]"
+            className="display-type section-title max-w-[12ch]"
           >
             The idea ships as a command.
           </h2>

@@ -14,19 +14,19 @@ export function HowItWorks() {
         <div className="grid gap-8 tablet:grid-cols-[1fr_auto] tablet:items-end">
           <div>
             <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">The usual route / manual custody</p>
-            <h2 id="current-way-title" className="display-type max-w-[12ch] text-[clamp(3rem,7vw,6.5rem)] leading-[0.86]">The developer becomes the control plane.</h2>
+            <h2 id="current-way-title" className="display-type section-title max-w-[14ch]">The developer becomes the control plane.</h2>
           </div>
           <p className="max-w-xs border-l pl-5 text-sm leading-6 text-muted">To give software bounded funds, someone has to own every handoff before and after the command runs.</p>
         </div>
 
-        <ol className="relative mt-16 grid gap-0 border-t desktop:grid-cols-4">
+        <ol className="relative mt-12 grid gap-0 border-t desktop:grid-cols-4">
           {steps.map(({ number, title, description, Icon }) => (
             <li key={number} className="group relative grid grid-cols-[4rem_1fr] border-b py-7 desktop:block desktop:border-r desktop:border-b-0 desktop:px-6 desktop:py-9 last:border-r-0">
               <span className="absolute -top-1.5 left-0 size-3 bg-ration-orange" />
               <span className="font-mono text-[0.6rem] text-ration-orange desktop:mb-10 desktop:block">{number}</span>
               <div>
                 <Icon size={36} strokeWidth={1.7} className="mb-8 text-foreground transition-transform" />
-                <h3 className="display-type text-3xl">{title}</h3>
+                <h3 className="display-type text-2xl">{title}</h3>
                 <p className="mt-3 max-w-[14rem] text-sm leading-6 text-muted">{description}</p>
               </div>
             </li>

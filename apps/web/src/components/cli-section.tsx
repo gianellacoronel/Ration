@@ -81,13 +81,13 @@ export function CliSection() {
             </p>
             <h2
               id="cli-title"
-              className="display-type text-[clamp(3rem,5.5vw,5.25rem)] leading-[0.86] text-foreground"
+              className="display-type section-title text-foreground"
             >
               <span className="block whitespace-nowrap">Fund.</span>
               <span className="block whitespace-nowrap">Run.</span>
               <span className="block whitespace-nowrap">Recover.</span>
             </h2>
-            <p className="mt-9 border-l-2 border-ration-orange pl-5 font-mono text-sm leading-7 text-muted">
+            <p className="mt-7 border-l-2 border-ration-orange pl-5 font-mono text-sm leading-7 text-muted">
               {Object.entries(commandHighlights).map(([id, label]) => (
                 <span
                   key={id}

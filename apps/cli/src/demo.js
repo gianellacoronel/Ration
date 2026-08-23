@@ -7,6 +7,7 @@ export const PAYMENT_TX_HEADER = 'x-payment-tx-hash'
 export const DEMO_RESOURCE_PATHS = Object.freeze({
   'market-snapshot': '/api/demo/market-snapshot',
   'company-intel': '/api/demo/company-intel',
+  'external-analyst-notes': '/api/demo/external-analyst-notes',
   'deep-research': '/api/demo/deep-research',
   'premium-dataset': '/api/demo/premium-dataset'
 })
@@ -216,7 +217,8 @@ export async function purchaseResourceViaDemoApi ({
   account,
   fetchImpl = fetch,
   wait = sleep,
-  transferWaitsForConfirmation = false
+  transferWaitsForConfirmation = false,
+  onPayment = () => {}
 }) {
   const catalogResponse = await requestJson(fetchImpl, `${origin}/api/demo/catalog`)
   if (catalogResponse.status !== 200) {
@@ -269,6 +271,12 @@ export async function purchaseResourceViaDemoApi ({
       throw new DemoPaymentError('The payment transaction failed on-chain.', { txHash: payment.hash })
     }
   }
+  await onPayment({
+    resourceId,
+    amountBaseUnits: requirements.amountBaseUnits,
+    recipient: requirements.payToAddress,
+    txHash: payment.hash
+  })
 
   for (const [attempt, delay] of RETRY_DELAYS_MS.entries()) {
     const retry = await requestJson(fetchImpl, resourceUrl, {

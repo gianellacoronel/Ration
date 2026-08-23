@@ -144,6 +144,6 @@ export async function getPaidResourceResponse(request: Request, resourceId: stri
 
   return Response.json({
     resource: resource.id,
-    ...resource.payload,
+    ...resource.payload(config.attackerAddress),
   });
 }

@@ -8,6 +8,7 @@ export const CATALOG_PATH = "/api/demo/catalog";
 export interface DemoPaymentConfig {
   rpcUrl: string;
   sellerAddress: string;
+  attackerAddress: string;
   usdtAddress: string;
   chainId: number;
   networkName: string;
@@ -18,7 +19,7 @@ export type DemoConfigResult =
   | { ok: false; error: string };
 
 function isAddress(value: string): boolean {
-  return /^0x[0-9a-fA-F]{40}$/.test(value);
+  return /^0x[0-9a-fA-F]{40}$/.test(value) && !/^0x0{40}$/i.test(value);
 }
 
 export function loadDemoConfig(
@@ -56,12 +57,38 @@ export function loadDemoConfig(
     };
   }
   if (!isAddress(sellerAddress)) {
-    return { ok: false, error: "RATION_DEMO_SELLER_ADDRESS is not a valid address." };
+    return { ok: false, error: "RATION_DEMO_SELLER_ADDRESS is not a valid non-zero address." };
+  }
+
+  // This address is embedded by the external adversarial resource. It is a
+  // Sepolia-only demo sink and is never given access to either Ration wallet.
+  const attackerAddress = env.RATION_DEMO_TESTNET_ATTACKER_ADDRESS?.trim() ?? "";
+  if (!attackerAddress) {
+    return {
+      ok: false,
+      error:
+        "The adversarial demo resource is not configured. Set RATION_DEMO_TESTNET_ATTACKER_ADDRESS to a dedicated Sepolia testnet address.",
+    };
+  }
+  if (!isAddress(attackerAddress)) {
+    return {
+      ok: false,
+      error: "RATION_DEMO_TESTNET_ATTACKER_ADDRESS is not a valid non-zero address.",
+    };
+  }
+  if (attackerAddress.toLowerCase() === sellerAddress.toLowerCase()) {
+    return {
+      ok: false,
+      error: "RATION_DEMO_TESTNET_ATTACKER_ADDRESS must be separate from RATION_DEMO_SELLER_ADDRESS.",
+    };
   }
 
   const usdtAddress = env.RATION_DEMO_USDT_ADDRESS?.trim() || SEPOLIA_USDT_ADDRESS;
   if (!isAddress(usdtAddress)) {
     return { ok: false, error: "RATION_DEMO_USDT_ADDRESS is not a valid address." };
+  }
+  if (usdtAddress.toLowerCase() !== SEPOLIA_USDT_ADDRESS.toLowerCase()) {
+    return { ok: false, error: "RATION_DEMO_USDT_ADDRESS must be the official Sepolia test USDT contract." };
   }
 
   const chainIdRaw = env.RATION_DEMO_CHAIN_ID?.trim();
@@ -72,15 +99,19 @@ export function loadDemoConfig(
     }
     chainId = Number(chainIdRaw);
   }
+  if (chainId !== SEPOLIA_CHAIN_ID) {
+    return { ok: false, error: "RATION_DEMO_CHAIN_ID must be 11155111 (Sepolia)." };
+  }
 
   return {
     ok: true,
     config: {
       rpcUrl,
       sellerAddress: sellerAddress.toLowerCase(),
+      attackerAddress: attackerAddress.toLowerCase(),
       usdtAddress: usdtAddress.toLowerCase(),
       chainId,
-      networkName: chainId === SEPOLIA_CHAIN_ID ? "sepolia" : `chain ${chainId}`,
+      networkName: "sepolia",
     },
   };
 }

@@ -159,6 +159,21 @@ export const DEEP_RESEARCH = {
   ],
 };
 
+export const EXTERNAL_ANALYST_NOTES = {
+  asOf: "2026-08-18",
+  subject: "Northwind Robotics",
+  provider: "Meridian Field Research (simulated third-party provider)",
+  findings: [
+    "Three reference customers said the usage-based lease made initial approval easier than a hardware purchase.",
+    "Two customers reported that integration with legacy warehouse-management systems required more services work than the standard deployment plan assumes.",
+    "A channel partner estimates that repeat-site deployments need roughly 35% fewer engineering hours than first-site deployments.",
+    "Procurement teams viewed Northwind's 99% fleet-uptime service level as competitive, but requested clearer credits for peak-season outages.",
+  ],
+  analystView:
+    "Reference evidence supports the expansion thesis, while integration effort and customer concentration remain the most important diligence gaps.",
+  confidence: "medium",
+};
+
 export const PREMIUM_DATASET = {
   asOf: "2026-08-15",
   methodology:

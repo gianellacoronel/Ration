@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Check as CheckIcon, Copy as CopyIcon } from "lucide-react";
 
 import {
   commandVariables,
@@ -50,7 +51,7 @@ function VariableCommand({ text }: { text: string }) {
 
   return text.split(pattern).map((part, index) =>
     variables.includes(part as (typeof variables)[number]) ? (
-      <span className="font-medium text-ration-orange-light" key={`${part}-${index}`}>
+      <span className="font-medium text-ration-orange" key={`${part}-${index}`}>
         {part}
       </span>
     ) : (
@@ -61,8 +62,8 @@ function VariableCommand({ text }: { text: string }) {
 
 function Check({ children }: { children: React.ReactNode }) {
   return (
-    <p>
-      <span className="mr-2 text-ration-success">✓</span>
+    <p className="flex items-center gap-2">
+      <CheckIcon className="shrink-0 text-ration-orange" size={14} strokeWidth={2} aria-hidden="true" />
       {children}
     </p>
   );
@@ -83,7 +84,7 @@ function RunOutput({ state }: { state: TerminalState }) {
   };
 
   return (
-    <div className="space-y-4 text-white/60">
+    <div className="space-y-4 text-ration-cream/60">
       {reached("checking") && (
         <div>
           <p>Checking sandbox...</p>
@@ -121,14 +122,14 @@ function RunOutput({ state }: { state: TerminalState }) {
       {reached("running") && (
         <div>
           <p>
-            Starting <span className="text-white">{terminalDemo.process}</span>...
+             Starting <span className="text-ration-cream">{terminalDemo.process}</span>...
           </p>
           <div className="mt-1">
             <Check>process started</Check>
           </div>
           {(state === "running" || state === "completed") && (
-            <p className="mt-3 text-white">
-              <span className="text-ration-orange-light">{terminalDemo.process}</span>{" "}
+            <p className="mt-3 text-ration-cream">
+              <span className="text-ration-orange">{terminalDemo.process}</span>{" "}
               &gt; {state === "running" && <Cursor />}
             </p>
           )}
@@ -136,15 +137,15 @@ function RunOutput({ state }: { state: TerminalState }) {
       )}
 
       {state === "completed" && (
-        <div className="border-t border-white/10 pt-4">
-          <p className="mb-3 font-medium text-white">Session complete</p>
+        <div className="border-t border-ration-cream/15 pt-4">
+          <p className="mb-3 font-medium text-ration-cream">Session complete</p>
           <dl className="grid grid-cols-[6.5rem_auto]">
             <dt>Spent</dt>
-            <dd className="text-white">{terminalDemo.spent}</dd>
+            <dd className="text-ration-cream">{terminalDemo.spent}</dd>
             <dt>Remaining</dt>
-            <dd className="text-ration-success">{terminalDemo.remaining}</dd>
+            <dd className="text-ration-orange">{terminalDemo.remaining}</dd>
             <dt>Sandbox</dt>
-            <dd className="text-white">{terminalDemo.status}</dd>
+            <dd className="text-ration-cream">{terminalDemo.status}</dd>
           </dl>
         </div>
       )}
@@ -159,13 +160,13 @@ function CommandOutput({ command, state }: { command: CommandName; state: Termin
     if (state !== "completed") return null;
 
     return (
-      <div className="mt-5 text-white/60">
-        <p className="mb-2 text-white">Sandboxes</p>
+      <div className="mt-5 text-ration-cream/60">
+        <p className="mb-2 text-ration-cream">Sandboxes</p>
         <dl className="grid grid-cols-[6.5rem_auto]">
           <dt>{terminalDemo.sandbox}</dt>
           <dd>
-            <span className="text-ration-success">{terminalDemo.balance}</span>
-            <span className="ml-3 text-white/40">{terminalDemo.status}</span>
+            <span className="text-ration-orange">{terminalDemo.balance}</span>
+            <span className="ml-3 text-ration-cream/40">{terminalDemo.status}</span>
           </dd>
         </dl>
       </div>
@@ -176,13 +177,13 @@ function CommandOutput({ command, state }: { command: CommandName; state: Termin
     if (state !== "completed") return null;
 
     return (
-      <dl className="mt-5 grid grid-cols-[6.5rem_auto] text-white/60">
+      <dl className="mt-5 grid grid-cols-[6.5rem_auto] text-ration-cream/60">
         <dt>Sandbox</dt>
-        <dd className="text-white">{terminalDemo.sandbox}</dd>
+        <dd className="text-ration-cream">{terminalDemo.sandbox}</dd>
         <dt>Balance</dt>
-        <dd className="text-ration-success">{terminalDemo.balance}</dd>
+        <dd className="text-ration-orange">{terminalDemo.balance}</dd>
         <dt>Status</dt>
-        <dd className="text-white">{terminalDemo.status}</dd>
+        <dd className="text-ration-cream">{terminalDemo.status}</dd>
       </dl>
     );
   }
@@ -196,7 +197,7 @@ function CommandOutput({ command, state }: { command: CommandName; state: Termin
 
 function Cursor() {
   return (
-    <span className="inline-block animate-cursor-blink text-white" aria-hidden="true">
+    <span className="inline-block animate-cursor-blink text-ration-cream" aria-hidden="true">
       ▌
     </span>
   );
@@ -298,35 +299,30 @@ export function TerminalDemo() {
   const isExecuting = state !== "idle" && state !== "completed";
 
   return (
-    <div className="animate-fade-in overflow-hidden rounded-lg border border-white/10 bg-ration-dark shadow-[0_28px_70px_rgb(28_28_28/0.24)] [animation-delay:180ms]">
-      <div className="flex h-12 items-center justify-between border-b border-white/10 bg-ration-dark-soft px-4">
-        <div className="flex items-center gap-1.5" aria-hidden="true">
-          <span className="size-2.5 rounded-full bg-ration-window-close" />
-          <span className="size-2.5 rounded-full bg-ration-window-minimize" />
-          <span className="size-2.5 rounded-full bg-ration-window-maximize" />
-        </div>
-        <span className="hidden font-mono text-[0.6875rem] font-medium tracking-[0.12em] text-white/60 uppercase mobile:block">
-          ration terminal
+    <div className="animate-fade-in overflow-hidden rounded-sm border border-ration-cream/20 bg-terminal [animation-delay:180ms]">
+      <div className="flex h-12 items-center justify-between border-b border-ration-cream/15 px-4">
+        <span className="font-mono text-[0.625rem] tracking-[0.14em] text-ration-orange uppercase">
+          ration@local:~
         </span>
-        <span className="flex items-center gap-2 font-mono text-[0.625rem] tracking-[0.1em] text-white/50 uppercase">
-          <span className="size-1.5 rounded-full bg-ration-success" aria-hidden="true" />
+        <span className="flex items-center gap-2 font-mono text-[0.625rem] tracking-[0.1em] text-ration-cream/55 uppercase">
+          <span className="size-1.5 bg-ration-orange" aria-hidden="true" />
           {stateLabels[state]}
         </span>
       </div>
 
-      <div className="border-b border-white/10 bg-white/[0.025] px-4 py-4 mobile:px-5">
-        <p className="mb-2.5 font-mono text-[0.625rem] font-medium tracking-[0.14em] text-white/60 uppercase">
-          Try:
+      <div className="border-b border-ration-cream/15 px-4 py-4 mobile:px-5">
+        <p className="mb-2.5 font-mono text-[0.625rem] font-medium tracking-[0.14em] text-ration-cream/55 uppercase">
+          Commands / click to execute
         </p>
         <div className="grid gap-2" aria-label="Demo commands">
           {terminalCommandOptions.map((option) => (
             <div
-              className="flex min-w-0 items-stretch rounded-sm border border-white/10 bg-white/[0.025] transition-colors focus-within:border-ration-orange-light/60 hover:border-white/20"
+              className="flex min-w-0 items-stretch rounded-sm border border-ration-cream/15 transition-colors focus-within:border-ration-orange hover:border-ration-cream/35"
               key={option.name}
             >
               <button
                 type="button"
-                className="min-h-11 min-w-0 flex-1 cursor-pointer overflow-x-auto px-3 py-2.5 text-left font-mono text-[0.6875rem] whitespace-nowrap text-white/65 outline-none disabled:cursor-wait disabled:opacity-45 mobile:text-xs"
+                className="min-h-11 min-w-0 flex-1 cursor-pointer overflow-x-auto px-3 py-2.5 text-left font-mono text-[0.6875rem] whitespace-nowrap text-ration-cream/65 outline-none disabled:cursor-wait disabled:opacity-45 mobile:text-xs"
                 disabled={isExecuting}
                 onClick={() => execute(option.name)}
                 aria-label={`Run ${option.value}`}
@@ -335,15 +331,15 @@ export function TerminalDemo() {
               </button>
               <button
                 type="button"
-                className="min-h-11 w-[4.75rem] shrink-0 cursor-pointer border-l border-white/10 px-2 font-sans text-[0.625rem] font-semibold tracking-[0.05em] text-white/60 outline-none transition-colors hover:bg-white/5 hover:text-white focus-visible:bg-white/5 focus-visible:text-white"
+                className="flex min-h-11 w-[4.75rem] shrink-0 cursor-pointer items-center justify-center gap-1.5 border-l border-ration-cream/15 px-2 font-mono text-[0.625rem] text-ration-cream/60 outline-none transition-colors hover:text-ration-orange focus-visible:text-ration-orange"
                 onClick={() => copy(option.name, option.value)}
                 aria-label={`Copy ${option.value}`}
               >
                 {copyFeedback?.name === option.name
                   ? copyFeedback.status === "copied"
-                    ? "✓ Copied"
+                    ? "Copied"
                     : "Try again"
-                  : "Copy"}
+                  : <><CopyIcon size={13} aria-hidden="true" /> Copy</>}
               </button>
             </div>
           ))}
@@ -358,13 +354,13 @@ export function TerminalDemo() {
           aria-busy={isExecuting}
         >
           {state === "idle" ? (
-            <p className="text-white/65">
+            <p className="text-ration-cream/65">
               Select a command to begin <Cursor />
             </p>
           ) : (
             <>
-              <p className="whitespace-nowrap text-white">
-                <span className="text-ration-orange-light">$</span>{" "}
+              <p className="whitespace-nowrap text-ration-cream">
+                <span className="text-ration-orange">$</span>{" "}
                 <VariableCommand text={typedCommand} />
                 {state === "typing" && <Cursor />}
               </p>

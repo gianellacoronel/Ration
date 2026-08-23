@@ -14,7 +14,7 @@ export default function Home() {
     <>
       <a
         href="#main-content"
-        className="fixed top-3 left-3 z-[100] -translate-y-20 rounded-sm bg-ration-dark px-4 py-2 text-sm font-semibold text-white transition-transform focus:translate-y-0 focus:outline-2 focus:outline-offset-2 focus:outline-ration-orange"
+        className="fixed top-3 left-3 z-[100] -translate-y-20 rounded-sm bg-ration-orange px-4 py-2 font-mono text-xs font-semibold text-ration-dark transition-transform focus:translate-y-0 focus:outline-2 focus:outline-offset-2 focus:outline-ration-orange"
       >
         Skip to content
       </a>

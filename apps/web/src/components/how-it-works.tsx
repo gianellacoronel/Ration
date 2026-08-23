@@ -1,272 +1,37 @@
-"use client";
-
-import { useEffect, useRef, useState } from "react";
+import { Coins, Lock, Terminal, Unlock } from "lucide-react";
 
 const steps = [
-  {
-    number: "01",
-    name: "Fund",
-    title: "Fund an isolated sandbox",
-    description: (
-      <>
-        Move an explicit amount of USD₮
-        <br className="hidden tablet:block" />
-        into an existing Ration sandbox.
-      </>
-    ),
-    state: "USD₮ allocated",
-  },
-  {
-    number: "02",
-    name: "Unlock",
-    title: "Unlock temporarily",
-    description: (
-      <>
-        Only the selected sandbox becomes
-        <br className="hidden tablet:block" />
-        available for the session.
-      </>
-    ),
-    state: "Access open",
-  },
-  {
-    number: "03",
-    name: "Run",
-    title: "Run the process",
-    description: (
-      <>
-        The process operates using only
-        <br className="hidden tablet:block" />
-        the funds available in its sandbox.
-      </>
-    ),
-    state: "Process active",
-  },
-  {
-    number: "04",
-    name: "Lock",
-    title: "Lock again",
-    description: (
-      <>
-        When the session ends, the sandbox
-        <br className="hidden tablet:block" />
-        is locked again.
-      </>
-    ),
-    state: "Access closed",
-  },
+  { number: "01", title: "Fund", description: "Move an explicit amount into a sandbox.", Icon: Coins },
+  { number: "02", title: "Unlock", description: "Open only that sandbox for the session.", Icon: Unlock },
+  { number: "03", title: "Run", description: "The process can use only allocated funds.", Icon: Terminal },
+  { number: "04", title: "Lock", description: "Close access when the process exits.", Icon: Lock },
 ];
 
-function StageMarker({
-  index,
-  activeStep,
-  direction,
-}: {
-  index: number;
-  activeStep: number;
-  direction: "horizontal" | "vertical";
-}) {
-  const step = steps[index];
-  const active = activeStep === index;
-  const complete = activeStep > index;
-
-  return (
-    <div
-      className={`relative z-10 flex ${
-        direction === "horizontal"
-          ? "flex-1 flex-col items-center text-center"
-          : "min-h-0 flex-1 items-center gap-3"
-      }`}
-    >
-      <span
-        className={`flex size-7 shrink-0 items-center justify-center rounded-full border font-mono text-[0.5625rem] transition-[color,background-color,border-color,box-shadow] duration-500 ease-ration ${
-          active
-            ? "border-ration-orange bg-ration-orange text-white shadow-[0_0_0_5px_rgb(247_79_6/0.13)]"
-            : complete
-              ? "border-white/70 bg-ration-dark text-white"
-              : "border-white/20 bg-ration-dark text-white/55"
-        }`}
-      >
-        {step.number}
-      </span>
-      <div className={direction === "horizontal" ? "mt-5" : "min-w-0"}>
-        <p
-          className={`font-mono text-[0.625rem] font-semibold tracking-[0.16em] uppercase transition-colors duration-500 ${
-            active ? "text-ration-orange-light" : "text-white/50"
-          }`}
-        >
-          {step.name}
-        </p>
-        <p
-          className={`mt-1.5 font-mono text-[0.5rem] tracking-[0.08em] uppercase transition-colors duration-500 ${
-            active ? "text-white/70" : "text-white/45"
-          }`}
-        >
-          {step.state}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function Lifecycle({ activeStep }: { activeStep: number }) {
-  const progress = `${(activeStep / (steps.length - 1)) * 100}%`;
-  const verticalProgress = `${((activeStep + 0.5) / steps.length) * 100}%`;
-
-  return (
-    <div className="relative h-full overflow-hidden rounded-lg border border-white/10 bg-white/[0.025]">
-      <div className="flex h-12 items-center justify-between border-b border-white/10 px-4 mobile:px-5">
-        <span className="font-mono text-[0.5625rem] tracking-[0.14em] text-white/55 uppercase">
-          Lifecycle / 04
-        </span>
-        <span className="flex items-center gap-2 font-mono text-[0.5625rem] tracking-[0.12em] text-ration-orange-light uppercase">
-          <span className="size-1.5 rounded-full bg-ration-orange" />
-          In sequence
-        </span>
-      </div>
-
-      <div className="relative flex h-[calc(100%-3rem)] items-center px-2 tablet:hidden">
-        <div className="absolute right-[12.5%] left-[12.5%] h-px bg-white/10">
-          <span
-            className="block h-full bg-ration-orange transition-[width] duration-500 ease-ration"
-            style={{ width: progress }}
-          />
-        </div>
-        {steps.map((step, index) => (
-          <StageMarker
-            key={step.number}
-            index={index}
-            activeStep={activeStep}
-            direction="horizontal"
-          />
-        ))}
-      </div>
-
-      <div className="relative hidden h-[calc(100%-3rem)] flex-col px-5 py-8 tablet:flex desktop:hidden">
-        <div className="absolute top-8 bottom-8 left-[1.62rem] w-px bg-white/10 mobile:left-[2.12rem]">
-          <span
-            className="block w-full bg-ration-orange transition-[height] duration-500 ease-ration"
-            style={{ height: verticalProgress }}
-          />
-        </div>
-        {steps.map((step, index) => (
-          <StageMarker
-            key={step.number}
-            index={index}
-            activeStep={activeStep}
-            direction="vertical"
-          />
-        ))}
-      </div>
-
-      <div className="relative hidden h-[calc(100%-3rem)] items-center px-9 desktop:flex">
-        <div className="absolute right-[12.5%] left-[12.5%] h-px bg-white/10">
-          <span
-            className="block h-full bg-ration-orange transition-[width] duration-500 ease-ration"
-            style={{ width: progress }}
-          />
-        </div>
-        {steps.map((step, index) => (
-          <StageMarker
-            key={step.number}
-            index={index}
-            activeStep={activeStep}
-            direction="horizontal"
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export function HowItWorks() {
-  const stepRefs = useRef<Array<HTMLElement | null>>([]);
-  const [activeStep, setActiveStep] = useState(0);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const current = entries.find((entry) => entry.isIntersecting);
-        if (!current) return;
-
-        setActiveStep(Number((current.target as HTMLElement).dataset.step));
-      },
-      { rootMargin: "-42% 0px -42% 0px" },
-    );
-
-    stepRefs.current.forEach((step) => {
-      if (step) observer.observe(step);
-    });
-
-    return () => observer.disconnect();
-  }, []);
-
   return (
-    <section
-      id="how-it-works"
-      className="border-t border-white/10 bg-ration-dark px-gutter py-section text-white"
-      aria-labelledby="how-it-works-title"
-    >
+    <section id="how-it-works" className="border-b bg-surface px-gutter py-section" aria-labelledby="how-title">
       <div className="mx-auto max-w-content">
-        <p className="mb-6 flex items-center gap-3 text-[0.6875rem] font-bold tracking-[0.17em] text-ration-orange-light uppercase mobile:text-xs">
-          <span className="h-px w-8 bg-ration-orange" aria-hidden="true" />
-          How it works
-        </p>
-        <h2
-          id="how-it-works-title"
-          className="max-w-[14ch] text-[clamp(2.75rem,6.5vw,5.75rem)] leading-[0.95] font-semibold tracking-[-0.06em]"
-        >
-          From funds to process
-          <br />
-          <span className="text-white/38">in four explicit steps.</span>
-        </h2>
-
-        <div className="mt-14 grid gap-8 tablet:mt-20 tablet:grid-cols-[7.5rem_minmax(0,1fr)] tablet:gap-6 desktop:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.72fr)] desktop:gap-16">
-          <aside className="sticky top-3 z-20 h-48 self-start bg-ration-dark tablet:top-20 tablet:h-[calc(100dvh-6.5rem)] desktop:top-24 desktop:h-[calc(100dvh-8rem)]">
-            <Lifecycle activeStep={activeStep} />
-          </aside>
-
+        <div className="grid gap-8 tablet:grid-cols-[1fr_auto] tablet:items-end">
           <div>
-            {steps.map((step, index) => {
-              const active = activeStep === index;
-
-              return (
-                <article
-                  key={step.number}
-                  ref={(element) => {
-                    stepRefs.current[index] = element;
-                  }}
-                  data-step={index}
-                  className="flex min-h-[45dvh] items-center py-8 tablet:min-h-[62dvh] desktop:min-h-[58dvh]"
-                  aria-current={active ? "step" : undefined}
-                >
-                  <div
-                    className={`w-full border-l px-4 py-2 transition-[border-color,opacity,transform] duration-500 ease-ration mobile:px-6 desktop:px-8 ${
-                      active
-                        ? "translate-x-0 border-ration-orange opacity-100"
-                        : "translate-x-1 border-white/10 opacity-35"
-                    }`}
-                  >
-                    <div className="mb-6 flex items-center justify-between gap-3 font-mono text-[0.625rem] tracking-[0.14em] uppercase">
-                      <span className={active ? "text-ration-orange-light" : "text-white/60"}>
-                        {step.number} / {step.name}
-                      </span>
-                      <span className="hidden text-white/50 mobile:block">
-                        {active ? "Active" : "Standby"}
-                      </span>
-                    </div>
-                    <h3 className="max-w-[13ch] text-[clamp(1.75rem,4vw,3rem)] leading-[1.02] font-semibold tracking-[-0.045em]">
-                      {step.title}
-                    </h3>
-                    <p className="mt-5 text-xs leading-5 text-white/55 mobile:text-sm mobile:leading-6">
-                      {step.description}
-                    </p>
-                  </div>
-                </article>
-              );
-            })}
+            <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">Operation manual / 01-04</p>
+            <h2 id="how-title" className="display-type max-w-[11ch] text-[clamp(3rem,7vw,6.5rem)] leading-[0.86]">Money in. Process out.</h2>
           </div>
+          <p className="max-w-xs border-l pl-5 text-sm leading-6 text-muted">Four explicit actions. No ambient wallet access. No hidden custody.</p>
         </div>
+
+        <ol className="relative mt-16 grid gap-0 border-t desktop:grid-cols-4">
+          {steps.map(({ number, title, description, Icon }) => (
+            <li key={number} className="group relative grid grid-cols-[4rem_1fr] border-b py-7 desktop:block desktop:border-r desktop:border-b-0 desktop:px-6 desktop:py-9 last:border-r-0">
+              <span className="absolute -top-1.5 left-0 size-3 bg-ration-orange desktop:left-6" />
+              <span className="font-mono text-xs text-ration-orange">{number}</span>
+              <div>
+                <Icon size={36} strokeWidth={1.7} className="mb-8 text-foreground transition-transform group-hover:-rotate-6 desktop:mb-14" />
+                <h3 className="display-type text-3xl">{title}</h3>
+                <p className="mt-3 max-w-[14rem] text-sm leading-6 text-muted">{description}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
       </div>
     </section>
   );

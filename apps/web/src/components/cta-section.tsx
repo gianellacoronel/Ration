@@ -1,61 +1,18 @@
+import { ArrowRight, GitFork, Terminal } from "lucide-react";
+
 import { getStartedHref, githubHref } from "@/config/navigation";
-
-const primaryCtaStyles =
-  "inline-flex min-h-12 items-center justify-center rounded-sm bg-ration-orange px-7 text-sm font-semibold text-white transition-[background-color,transform] hover:-translate-y-0.5 hover:bg-ration-orange-light focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange-light";
-
-const secondaryCtaStyles =
-  "inline-flex min-h-12 items-center justify-center gap-2 rounded-sm border border-white/20 px-7 text-sm font-semibold text-white transition-[background-color,border-color,transform] hover:-translate-y-0.5 hover:border-white/40 hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange-light";
 
 export function CtaSection() {
   return (
-    <section
-      id="get-started"
-      className="relative isolate overflow-hidden bg-ration-dark px-gutter py-section text-white"
-      aria-labelledby="cta-title"
-    >
-      <div
-        className="pointer-events-none absolute inset-0 -z-10 opacity-20"
-        aria-hidden="true"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgb(247 79 6 / 0.3) 1px, transparent 1px), linear-gradient(90deg, rgb(247 79 6 / 0.3) 1px, transparent 1px)",
-          backgroundSize: "4rem 4rem",
-          maskImage: "linear-gradient(to bottom, transparent, black 35%, transparent)",
-        }}
-      />
-      <div className="pointer-events-none absolute top-1/2 left-1/2 -z-10 size-[26rem] -translate-1/2 rounded-full bg-ration-orange/10 blur-[100px]" aria-hidden="true" />
-
-      <div className="mx-auto flex max-w-content flex-col items-center text-center">
-        <p className="mb-7 font-mono text-[0.6875rem] font-semibold tracking-[0.18em] text-ration-orange-light uppercase mobile:text-xs">
-          Start building
-        </p>
-        <h2
-          id="cta-title"
-          className="max-w-[12ch] text-[clamp(3rem,8vw,7rem)] leading-[0.9] font-semibold tracking-[-0.065em]"
-        >
-          Give your processes
-          <br />
-          <span className="text-ration-orange">their own money.</span>
-        </h2>
-        <p className="mt-8 max-w-[34rem] text-base leading-7 text-white/65 mobile:text-lg mobile:leading-8">
-          Isolated financial sandboxes
-          <br className="hidden mobile:block" /> for the next generation of software.
-        </p>
-        <div className="mt-10 flex w-full max-w-sm flex-col gap-3 mobile:w-auto mobile:max-w-none mobile:flex-row">
-          <a href={getStartedHref} className={primaryCtaStyles}>
-            Get started
-          </a>
-          <a
-            href={githubHref}
-            className={secondaryCtaStyles}
-            target="_blank"
-            rel="noreferrer"
-          >
-            View on GitHub
-            <svg viewBox="0 0 16 16" className="size-4" fill="none" aria-hidden="true">
-              <path d="M4 12 12 4m0 0H6.5M12 4v5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </a>
+    <section id="get-started" className="relative overflow-hidden bg-ration-orange px-gutter py-section text-ration-dark" aria-labelledby="cta-title">
+      <Terminal className="absolute -right-8 -bottom-8 rotate-[-7deg] opacity-20" size={260} strokeWidth={1.2} aria-hidden="true" />
+      <div className="relative mx-auto max-w-content">
+        <p className="mb-6 font-mono text-[0.65rem] font-semibold uppercase tracking-[0.16em]">Ready / execute</p>
+        <h2 id="cta-title" className="display-type max-w-[10ch] text-[clamp(3.4rem,9vw,8rem)] leading-[0.82]">Put a hard limit on software.</h2>
+        <p className="hand-type mt-5 text-3xl mobile:text-4xl">Money, but with boundaries.</p>
+        <div className="mt-10 flex flex-col gap-3 mobile:flex-row">
+          <a href={getStartedHref} className="inline-flex min-h-12 items-center justify-center gap-3 rounded-sm bg-ration-dark px-6 font-mono text-xs font-semibold uppercase tracking-[0.08em] text-ration-cream"><ArrowRight size={18} /> Try the CLI</a>
+          <a href={githubHref} target="_blank" rel="noreferrer" className="inline-flex min-h-12 items-center justify-center gap-3 rounded-sm border border-ration-dark px-6 font-mono text-xs font-semibold uppercase tracking-[0.08em]"><GitFork size={18} /> View source</a>
         </div>
       </div>
     </section>

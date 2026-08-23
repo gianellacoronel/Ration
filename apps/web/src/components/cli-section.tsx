@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Check, Copy, Terminal } from "lucide-react";
 
 import {
   cliCommands,
@@ -21,7 +22,7 @@ function HighlightedCommand({ command }: { command: string }) {
     variables.includes(part as (typeof variables)[number]) ? (
       <span
         key={`${part}-${index}`}
-        className="rounded-[0.2rem] bg-ration-orange/15 px-1 py-0.5 font-semibold text-ration-orange-light"
+        className="bg-ration-orange/15 px-1 py-0.5 font-semibold text-ration-orange"
       >
         {part}
       </span>
@@ -76,47 +77,41 @@ export function CliSection() {
   return (
     <section
       id="cli"
-      className="overflow-hidden border-t border-ration-dark/10 bg-ration-background-alt px-gutter py-section"
+      className="overflow-hidden border-b bg-surface px-gutter py-section"
       aria-labelledby="cli-title"
     >
       <div className="mx-auto max-w-content">
-        <div className="grid gap-12 desktop:grid-cols-[minmax(15rem,0.65fr)_minmax(0,1.35fr)] desktop:items-center desktop:gap-16">
+        <div className="grid gap-12 desktop:grid-cols-[minmax(15rem,0.55fr)_minmax(0,1.45fr)] desktop:items-center desktop:gap-16">
           <div>
-            <p className="mb-6 flex items-center gap-3 text-[0.6875rem] font-bold tracking-[0.17em] text-ration-orange uppercase mobile:text-xs">
-              <span className="h-px w-8 bg-ration-orange" aria-hidden="true" />
-              Ration CLI
+            <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">
+              Interface / Ration CLI
             </p>
             <h2
               id="cli-title"
-              className="max-w-[9ch] text-[clamp(3rem,7vw,6rem)] leading-[0.92] font-semibold tracking-[-0.065em] text-ration-dark"
+              className="display-type max-w-[9ch] text-[clamp(3rem,7vw,6rem)] leading-[0.86] text-foreground"
             >
               Built for the terminal.
             </h2>
-            <p className="mt-9 border-l-2 border-ration-orange pl-5 text-[clamp(1.25rem,2.3vw,1.75rem)] leading-[1.35] font-medium tracking-[-0.025em] text-ration-dark/48">
-              <span className="block text-ration-dark">Simple commands.</span>
+            <p className="mt-9 border-l-2 border-ration-orange pl-5 font-mono text-sm leading-7 text-muted">
+              <span className="block text-foreground">Simple commands.</span>
               <span className="block">Explicit money.</span>
               <span className="block">Isolated execution.</span>
             </p>
           </div>
 
-          <div className="min-w-0 overflow-hidden rounded-lg border border-black/15 bg-ration-terminal shadow-[0_30px_80px_rgb(28_28_28/0.2)]">
-            <div className="flex h-12 items-center justify-between border-b border-white/10 bg-ration-terminal-bar px-4 mobile:px-5">
-              <div className="flex items-center gap-1.5" aria-hidden="true">
-                <span className="size-2.5 rounded-full bg-ration-window-close" />
-                <span className="size-2.5 rounded-full bg-ration-window-minimize" />
-                <span className="size-2.5 rounded-full bg-ration-window-maximize" />
-              </div>
-              <span className="font-mono text-[0.625rem] tracking-[0.14em] text-white/55 uppercase">
-                ration / cli
+          <div className="min-w-0 overflow-hidden rounded-sm border border-ration-cream/20 bg-terminal">
+            <div className="flex h-12 items-center justify-between border-b border-ration-cream/15 px-4 mobile:px-5">
+              <span className="flex items-center gap-2 font-mono text-[0.625rem] tracking-[0.14em] text-ration-orange uppercase">
+                <Terminal size={16} /> ration / cli
               </span>
-              <span className="flex items-center gap-2 font-mono text-[0.5625rem] tracking-[0.12em] text-white/60 uppercase">
-                <span className="size-1.5 rounded-full bg-ration-success" aria-hidden="true" />
+              <span className="flex items-center gap-2 font-mono text-[0.5625rem] tracking-[0.12em] text-ration-cream/60 uppercase">
+                <span className="size-1.5 bg-ration-orange" aria-hidden="true" />
                 Ready
               </span>
             </div>
 
             <div
-              className="overflow-x-auto border-b border-white/10 bg-white/[0.025] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              className="overflow-x-auto border-b border-ration-cream/15 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               role="tablist"
               aria-label="CLI commands"
             >
@@ -136,10 +131,10 @@ export function CliSection() {
                       aria-selected={active}
                       aria-controls="cli-command-panel"
                       tabIndex={active ? 0 : -1}
-                      className={`relative min-h-14 cursor-pointer px-5 font-mono text-xs font-semibold tracking-[0.04em] outline-none transition-colors after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:transition-colors focus-visible:bg-white/5 ${
+                      className={`relative min-h-14 cursor-pointer px-5 font-mono text-xs font-semibold tracking-[0.04em] outline-none transition-colors after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:transition-colors focus-visible:bg-ration-cream/5 ${
                         active
-                          ? "text-ration-orange after:bg-ration-orange"
-                          : "text-white/60 after:bg-transparent hover:text-white/80"
+                           ? "text-ration-orange after:bg-ration-orange"
+                          : "text-ration-cream/60 after:bg-transparent hover:text-ration-cream/85"
                       }`}
                       onClick={() => selectCommand(command.id)}
                       onKeyDown={(event) => handleTabKeyDown(event, index)}
@@ -157,25 +152,17 @@ export function CliSection() {
               aria-labelledby={`cli-tab-${activeCommand.id}`}
               className="min-w-0"
             >
-              <div className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3 mobile:px-6">
-                <span className="font-mono text-[0.5625rem] tracking-[0.15em] text-white/55 uppercase">
+              <div className="flex items-center justify-between gap-4 border-b border-ration-cream/15 px-4 py-3 mobile:px-6">
+                <span className="font-mono text-[0.5625rem] tracking-[0.15em] text-ration-cream/55 uppercase">
                   Command
                 </span>
                 <button
                   type="button"
                   onClick={copyCommand}
-                  className="flex min-h-11 min-w-[6.75rem] cursor-pointer items-center justify-center gap-2 rounded-sm border border-white/10 px-3 text-[0.6875rem] font-semibold text-white/65 outline-none transition-[color,background-color,border-color] hover:border-white/20 hover:bg-white/5 hover:text-white focus-visible:border-ration-orange focus-visible:text-white"
+                  className="flex min-h-11 min-w-[6.75rem] cursor-pointer items-center justify-center gap-2 rounded-sm border border-ration-cream/15 px-3 font-mono text-[0.6875rem] text-ration-cream/65 outline-none transition-colors hover:border-ration-orange hover:text-ration-orange focus-visible:border-ration-orange focus-visible:text-ration-orange"
                   aria-label={`Copy ${activeCommand.command}`}
                 >
-                  <svg
-                    viewBox="0 0 16 16"
-                    className="size-3.5"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <rect x="5.25" y="5.25" width="8" height="8" rx="1.25" stroke="currentColor" />
-                    <path d="M10.5 5.25V3.5A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9A1.5 1.5 0 0 0 3.5 10.5h1.75" stroke="currentColor" />
-                  </svg>
+                  {copyFeedback === "copied" ? <Check size={15} /> : <Copy size={15} />}
                   {copyFeedback === "copied"
                     ? "Copied"
                     : copyFeedback === "failed"
@@ -184,10 +171,10 @@ export function CliSection() {
                 </button>
               </div>
 
-              <div className="overflow-x-auto border-b border-white/10 p-4 mobile:p-6">
-                <pre className="min-w-max text-[0.75rem] leading-6 whitespace-pre text-white mobile:text-[0.8125rem]">
+              <div className="overflow-x-auto border-b border-ration-cream/15 p-4 mobile:p-6">
+                <pre className="min-w-max text-[0.75rem] leading-6 whitespace-pre text-ration-cream mobile:text-[0.8125rem]">
                   <code>
-                    <span className="select-none text-ration-orange-light" aria-hidden="true">
+                    <span className="select-none text-ration-orange" aria-hidden="true">
                       $ {" "}
                     </span>
                     <HighlightedCommand command={activeCommand.command} />
@@ -198,7 +185,7 @@ export function CliSection() {
               <div className="min-h-[16.5rem] overflow-x-auto p-4 mobile:min-h-[18rem] mobile:p-6">
                 <pre
                   key={activeCommand.id}
-                  className="min-w-max animate-fade-in font-mono text-[0.6875rem] leading-6 whitespace-pre text-white/58 mobile:text-xs mobile:leading-7"
+                   className="min-w-max animate-fade-in font-mono text-[0.6875rem] leading-6 whitespace-pre text-ration-cream/58 mobile:text-xs mobile:leading-7"
                 >
                   {activeCommand.output}
                 </pre>

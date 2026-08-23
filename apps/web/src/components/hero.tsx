@@ -1,77 +1,50 @@
-import { getStartedHref, githubHref } from "@/config/navigation";
+import { ArrowDownRight, ArrowRight, Bot, Coins, GitFork, LockKeyhole, Terminal, Wallet } from "lucide-react";
+
 import { TerminalDemo } from "@/components/terminal-demo";
-
-const primaryCtaStyles =
-  "inline-flex min-h-12 items-center justify-center rounded-sm bg-ration-orange px-6 text-sm font-semibold text-ration-white transition-[background-color,transform] hover:-translate-y-0.5 hover:bg-ration-orange-dark focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange";
-
-const secondaryCtaStyles =
-  "inline-flex min-h-12 items-center justify-center gap-2 rounded-sm border border-ration-dark/15 bg-transparent px-6 text-sm font-semibold text-ration-dark transition-[background-color,border-color,transform] hover:-translate-y-0.5 hover:border-ration-dark/30 hover:bg-ration-white/70 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange";
+import { getStartedHref, githubHref } from "@/config/navigation";
 
 export function Hero() {
   return (
-    <section className="overflow-hidden" aria-labelledby="hero-title">
-      <div className="mx-auto grid min-h-[calc(100dvh-5rem)] max-w-content desktop:grid-cols-[1.04fr_0.96fr]">
-        <div className="animate-fade-up px-gutter py-16 tablet:py-20 desktop:flex desktop:flex-col desktop:justify-center desktop:border-r desktop:py-section">
-          <p className="mb-7 flex items-center gap-3 text-[0.6875rem] font-bold tracking-[0.17em] text-ration-orange uppercase mobile:text-xs">
-            <span className="h-px w-8 bg-ration-orange" aria-hidden="true" />
-            Financial sandboxes for processes
-          </p>
-
-          <h1
-            id="hero-title"
-            className="max-w-[11ch] text-[clamp(3.25rem,8.2vw,6.75rem)] leading-[0.91] font-semibold tracking-[-0.065em] text-ration-dark desktop:text-[clamp(5rem,7vw,7rem)]"
-          >
-            Give every process
-            <br />
-            <span className="text-ration-orange">its own money.</span>
-          </h1>
-
-          <p className="mt-8 max-w-[32rem] text-base leading-7 text-ration-dark/68 mobile:text-lg mobile:leading-8">
-            Ration gives processes isolated, disposable wallets
-            <br className="hidden mobile:block" /> with temporary access to real
-            funds.
-          </p>
-
-          <div className="mt-9 flex flex-col gap-3 mobile:flex-row">
-            <a href={getStartedHref} className={primaryCtaStyles}>
-              Get started
-            </a>
-            <a
-              href={githubHref}
-              className={secondaryCtaStyles}
-              target="_blank"
-              rel="noreferrer"
-            >
-              View on GitHub
-              <svg
-                viewBox="0 0 16 16"
-                className="size-4"
-                aria-hidden="true"
-                fill="none"
-              >
-                <path
-                  d="M4 12 12 4m0 0H6.5M12 4v5.5"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </a>
-          </div>
+    <section className="overflow-hidden border-b" aria-labelledby="hero-title">
+      <div className="mx-auto max-w-content px-gutter py-12 tablet:py-18 desktop:py-22">
+        <div className="mb-10 flex items-center justify-between gap-6 border-b pb-4 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-muted">
+          <span>A CLI for money with boundaries</span>
+          <span className="hidden items-center gap-2 mobile:flex"><span className="size-2 bg-ration-orange" /> v0.1 / live</span>
         </div>
 
-        <div className="relative flex min-w-0 items-center bg-ration-orange px-gutter py-16 tablet:py-20 desktop:py-section">
-          <div
-            className="pointer-events-none absolute inset-0 opacity-[0.09]"
-            aria-hidden="true"
-            style={{
-              backgroundImage:
-                "linear-gradient(rgb(255 255 255 / 0.7) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / 0.7) 1px, transparent 1px)",
-              backgroundSize: "3rem 3rem",
-            }}
-          />
-          <div className="relative w-full min-w-0 desktop:-ml-px">
+        <div className="relative grid gap-12 desktop:grid-cols-12 desktop:items-start">
+          <div className="relative z-10 desktop:col-span-8">
+            <h1 id="hero-title" className="display-type max-w-[9.5ch] text-[clamp(3.75rem,10.5vw,9.25rem)] leading-[0.82] text-foreground">
+              Give every process <span className="text-ration-orange">its own money.</span>
+            </h1>
+            <p className="hand-type mt-6 rotate-[-2deg] text-[clamp(1.7rem,3vw,2.5rem)] leading-none text-foreground">
+              Give agents a ration, not your wallet.
+            </p>
+            <div className="mt-9 flex flex-col gap-3 mobile:flex-row">
+              <a href={getStartedHref} className="inline-flex min-h-12 items-center justify-center gap-3 rounded-sm bg-ration-orange px-6 font-mono text-xs font-semibold uppercase tracking-[0.08em] text-ration-dark hover:bg-ration-orange-dark focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange">
+                Run the CLI <ArrowRight size={18} />
+              </a>
+              <a href={githubHref} target="_blank" rel="noreferrer" className="inline-flex min-h-12 items-center justify-center gap-3 rounded-sm border px-6 font-mono text-xs font-semibold uppercase tracking-[0.08em] text-foreground hover:border-ration-orange hover:text-ration-orange focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ration-orange">
+                <GitFork size={18} /> View source
+              </a>
+            </div>
+          </div>
+
+          <div className="relative hidden min-h-72 desktop:col-span-4 desktop:block" aria-hidden="true">
+            <Wallet className="absolute top-2 left-8 rotate-[-8deg] text-foreground" size={62} strokeWidth={1.5} />
+            <Coins className="absolute top-22 right-7 rotate-12 text-ration-orange" size={50} strokeWidth={1.7} />
+            <Bot className="absolute top-38 left-2 rotate-3 text-foreground" size={58} strokeWidth={1.5} />
+            <Terminal className="absolute right-12 bottom-2 rotate-[-5deg] text-foreground" size={64} strokeWidth={1.5} />
+            <LockKeyhole className="absolute bottom-0 left-30 text-ration-orange" size={35} strokeWidth={1.8} />
+            <span className="absolute top-28 left-21 h-px w-28 rotate-12 bg-border" />
+            <span className="hand-type absolute right-0 bottom-18 rotate-6 text-2xl text-muted">temporary by design</span>
+          </div>
+
+          <div className="relative desktop:col-span-10 desktop:col-start-3 desktop:-mt-4">
+            <div className="mb-2 flex items-center justify-between font-mono text-[0.625rem] uppercase tracking-[0.14em] text-muted">
+              <span>01 / executable boundary</span>
+              <ArrowDownRight size={18} className="text-ration-orange" />
+            </div>
             <TerminalDemo />
           </div>
         </div>

@@ -20,20 +20,6 @@ export async function GET() {
   const { config, priceBaseUnits } = loaded;
 
   return Response.json({
-    resource: {
-      id: RESOURCE_ID,
-      name: "Company intelligence report",
-      description:
-        "A structured company-intelligence dossier. Unlocked by paying the listed price in test USDT.",
-      method: "GET",
-      path: RESOURCE_PATH,
-    },
-    price: {
-      amount: formatUsdtBaseUnits(priceBaseUnits),
-      amountBaseUnits: priceBaseUnits.toString(),
-      currency: "USDT",
-      decimals: USDT_DECIMALS,
-    },
     seller: {
       address: config.sellerAddress,
       label: "Ration demo seller",
@@ -47,5 +33,21 @@ export async function GET() {
       address: config.usdtAddress,
       decimals: USDT_DECIMALS,
     },
+    resources: [
+      {
+        id: RESOURCE_ID,
+        name: "Company intelligence report",
+        description:
+          "A structured company-intelligence dossier. Unlocked by paying the listed price in test USDT.",
+        method: "GET",
+        path: RESOURCE_PATH,
+        price: {
+          amount: formatUsdtBaseUnits(priceBaseUnits),
+          amountBaseUnits: priceBaseUnits.toString(),
+          currency: "USDT",
+          decimals: USDT_DECIMALS,
+        },
+      },
+    ],
   });
 }

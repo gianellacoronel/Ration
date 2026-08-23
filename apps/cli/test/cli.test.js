@@ -403,6 +403,34 @@ test('run reports a confirmed 0.05 USDT payment and sweeps the remaining 0.45 be
   assert.equal(logs.at(-1), 'Sandbox    disposed')
 })
 
+test('run reports the demo acceptance totals and preserves cleanup order', async () => {
+  const { logs, errors, output } = captureOutput()
+  const events = []
+  const sandbox = createSandbox(events, {
+    getUsdtBalance: async () => {
+      events.push(['sandbox-usdt'])
+      return 80000n
+    },
+    sweepUsdt: async (recipient) => {
+      events.push(['sweep-usdt', recipient])
+      return { amount: 80000n, fee: 50000n, remaining: 0n }
+    }
+  })
+  const exitCode = await main(['run', '--budget', '0.10', '--', 'codex'], {
+    output,
+    ...successfulRunOptions(events, { sandbox })
+  })
+
+  assert.equal(exitCode, 0)
+  assert.deepEqual(errors, [])
+  assert.equal(logs.includes('Spent      0.02 USDT'), true)
+  assert.equal(logs.includes('Returned   0.08 USDT'), true)
+  assert.equal(logs.at(-1), 'Sandbox    disposed')
+  assert.deepEqual(events.slice(-5).map((event) => event[0]), [
+    'close-mcp', 'sandbox-usdt', 'sweep-usdt', 'sweep-eth', 'dispose'
+  ])
+})
+
 test('run fails before confirmation when treasury USDT is below the exact budget', async () => {
   const { errors, output } = captureOutput()
   const events = []

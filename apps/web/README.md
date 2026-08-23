@@ -18,12 +18,13 @@ Two endpoints live under `/api/demo`:
 1. `GET /api/demo/company-intel` returns `402 Payment Required` with
    machine-readable payment requirements (seller, token, amount, network) and
    retry instructions.
-2. The agent pays from its Ration sandbox using the MCP `transfer` tool:
-   `{ chain: "sepolia", token: "USDT", to: <seller>, amount: "0.02" }`. The
-   tool requires explicit user confirmation and returns the confirmed
-   transaction hash.
-3. The agent retries `GET /api/demo/company-intel`, passing the hash in the
-   `x-payment-tx-hash` header or the `?tx=` query parameter.
+2. The agent calls `ration_purchaseResource({ resourceId: "company-intel" })`.
+   Ration validates the server's Sepolia test USDT requirements, checks the
+   ephemeral sandbox balance, pays `0.02` USDT from that same EOA, and waits for
+   confirmation. No recipient, token, amount, network, or transaction details
+   are supplied by the agent.
+3. Ration retries `GET /api/demo/company-intel` with the confirmed hash in the
+   `x-payment-tx-hash` header and returns the unlocked payload to the agent.
 4. The server verifies on-chain, independently of anything the client claims,
    that the transaction:
    - succeeded (`status == 0x1`);
@@ -65,10 +66,9 @@ curl http://localhost:3000/api/demo/catalog
 curl -i http://localhost:3000/api/demo/company-intel
 # → 402 Payment Required with payment requirements
 
-# Inside `ration run --budget 0.5 -- codex` (or opencode), pay via the sandbox
-# transfer tool, then:
-curl -i "http://localhost:3000/api/demo/company-intel?tx=<transaction-hash>"
-# → 200 with the company-intelligence JSON (first attempt only)
+# Then run `ration run --budget 0.10 -- codex` and ask:
+# Check the available paid resources and get the company intelligence report.
+# Codex discovers and purchases the resource through the Ration MCP tools.
 ```
 
 ## Getting Started (site)

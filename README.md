@@ -85,16 +85,18 @@ The user budget is always USDT. Sepolia ETH is provisioned only for lifecycle ga
 
 `ration run` attaches an official `@tetherto/wdk-mcp-toolkit` server to OpenCode and Codex without writing either agent's configuration files. The agent starts a local stdio bridge connected to a private, session-only Unix socket; the seed remains in the parent Ration process and is never placed in command arguments, environment variables, configuration files, or logs.
 
-The server registers one `sepolia` wallet, the three existing read-only tools, and one official write tool:
+The server registers one `sepolia` wallet and six scoped tools:
 
 - `getAddress`
 - `getBalance` for native Sepolia ETH, returned as both formatted ETH and canonical wei
 - `getTokenBalance` for Sepolia USDT
 - `transfer` for Sepolia USDT; the Toolkit quotes the fee and requires explicit MCP elicitation confirmation before broadcast, then Ration waits for chain confirmation before returning the result
+- `ration_getCatalog` to discover the paid resources on the configured Ration demo API
+- `ration_purchaseResource` to request a catalog resource, validate its `402` Sepolia test USDT requirements, check the sandbox balance, pay from the same ephemeral EOA, wait for confirmation, and return the unlocked payload
 
-No native transfer, arbitrary transaction, signing, quote, swap, bridge, wallet-management, pricing, indexer, protocol, or custom marketplace tools are registered. Sepolia is the only registered chain and USDT is the only registered token, so `transfer` cannot resolve another asset. The MCP WDK derives the account independently and Ration fails closed if its address does not exactly match the funded sandbox. It never connects to the WDK CLI daemon and cannot see `rationtreasury`.
+No native transfer, arbitrary transaction, signing, quote, swap, bridge, wallet-management, indexer, or protocol tools are registered. Purchases accept only a resource ID from the configured Ration demo catalog; arbitrary URLs and client-supplied payment details are not accepted. Sepolia is the only registered chain and USDT is the only registered token, so `transfer` cannot resolve another asset. The MCP WDK derives the account independently and Ration fails closed if its address does not exactly match the funded sandbox. It never connects to the WDK CLI daemon and cannot see `rationtreasury`.
 
-Transfers fail closed when the launched MCP client does not support form elicitation. Ration does not disable or auto-accept the Toolkit confirmation flow.
+Low-level transfers fail closed when the launched MCP client does not support form elicitation. `ration_purchaseResource` is autonomous within the USDT budget approved when the session starts and does not require the agent to construct or confirm the payment mechanics.
 
 The WDK MCP server and its tool behavior are client-neutral. Ration contains small launch adapters only for transiently attaching that standard server to Codex and OpenCode without modifying their persistent configuration.
 
@@ -104,7 +106,7 @@ The WDK MCP server and its tool behavior are client-neutral. Ration contains sma
 - Normal sessions never register a sandbox with the WDK CLI.
 - Sandbox seed bytes, account, and manager exist only in the Ration process.
 - Sandbox secrets are never printed, passed in child arguments or environment, or persisted by Ration.
-- The MCP server exposes address and balance reads plus confirmed-by-user Sepolia USDT transfers for the ephemeral account.
+- The MCP server exposes address and balance reads, confirmed-by-user low-level transfers, and autonomous purchases restricted to the configured demo API for the ephemeral account.
 - MCP resources close before sweeping and final sandbox disposal.
 - Treasury balance reads, dry runs, and transfers use structured official WDK CLI output.
 - Sandbox reads, quotes, transfers, confirmation waits, and disposal use current standard EVM WDK APIs.

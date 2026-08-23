@@ -15,7 +15,13 @@ import WalletManagerEvm from '@tetherto/wdk-wallet-evm'
 import { z } from 'zod'
 
 import { USDT_ADDRESS } from './config.js'
-import { formatEthBaseUnits } from './domain.js'
+import {
+  DemoPaymentError,
+  parseCatalogPayload,
+  purchaseResourceViaDemoApi,
+  resolveDemoOrigin
+} from './demo.js'
+import { formatEthBaseUnits, formatUsdtBaseUnits } from './domain.js'
 
 const CHAIN = 'sepolia'
 const SERVER_NAME = 'ration'
@@ -99,6 +105,128 @@ function getSepoliaBalance (server) {
 
 const SANDBOX_TOOLS = [getAddress, getSepoliaBalance, getTokenBalance, transfer]
 
+function toolError (error) {
+  const message = error instanceof Error ? error.message : String(error)
+  const spent = error instanceof DemoPaymentError && typeof error.txHash === 'string'
+    ? ` A USDT payment was already broadcast with transaction ${error.txHash}; do not pay again for this resource.`
+    : ''
+  return {
+    isError: true,
+    content: [{ type: 'text', text: `${message}${spent}` }]
+  }
+}
+
+function registerDemoTools (server, origin, options = {}) {
+  const fetchImpl = options.fetchImpl ?? fetch
+  const wait = options.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+  // One successful purchase per resource per session. A repeat call returns
+  // the unlocked payload instead of spending from the sandbox a second time.
+  const unlockedPayloads = new Map()
+
+  server.registerTool(
+    'ration_getCatalog',
+    {
+      title: 'Get Ration Demo Catalog',
+      description: `List the paid resources offered by the Ration demo API and what each costs.
+
+Call this before purchasing. It returns the seller address, the Sepolia network details, the official test USDT token address, and each resource's id and price in USDT.
+Args: none.`,
+      inputSchema: z.object({}).optional(),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async () => {
+      try {
+        const response = await fetchImpl(`${origin}/api/demo/catalog`, {
+          redirect: 'error',
+          signal: AbortSignal.timeout(15000)
+        })
+        if (response.status !== 200) {
+          throw new DemoPaymentError(`The demo catalog returned HTTP ${response.status}.`)
+        }
+        const catalog = parseCatalogPayload(await response.json())
+        return {
+          content: [{
+            type: 'text',
+            text: catalog.resources.map((resource) =>
+              `${resource.id}: ${resource.name} - ${resource.price.amount} USDT (${resource.method} ${resource.path})`
+            ).join('\n')
+          }],
+          structuredContent: catalog
+        }
+      } catch (error) {
+        return toolError(error)
+      }
+    }
+  )
+
+  server.registerTool(
+    'ration_purchaseResource',
+    {
+      title: 'Purchase Ration Demo Resource',
+      description: `Buy a paid resource from the Ration demo API using this sandbox wallet.
+
+The full payment flow is handled automatically: the resource is requested, its price in test USDT is read from the server's payment requirements, the amount is sent from this sandbox's Sepolia USDT balance to the seller, the transaction is waited until confirmed, and the protected payload is returned with the transaction hash. No other wallet is used and no payment details are needed from you.
+Args:
+  - resourceId (REQUIRED): the resource id from ration_getCatalog (e.g. "company-intel")`,
+      inputSchema: z.object({
+        resourceId: z.string().min(1).describe('The resource id from ration_getCatalog')
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true
+      }
+    },
+    async ({ resourceId }) => {
+      const cached = unlockedPayloads.get(resourceId)
+      if (cached) {
+        return {
+          content: [{
+            type: 'text',
+            text: `"${resourceId}" was already unlocked earlier in this session; no new payment was made. Payload follows:\n${JSON.stringify(cached, null, 2)}`
+          }],
+          structuredContent: { purchased: true, resource: resourceId, paidBaseUnits: '0', payload: cached }
+        }
+      }
+      try {
+        const account = await server.wdk.getAccount(CHAIN, 0)
+        const result = await purchaseResourceViaDemoApi({
+          origin,
+          resourceId,
+          account,
+          fetchImpl,
+          wait
+        })
+        unlockedPayloads.set(resourceId, result.payload)
+        const paidText = result.txHash
+          ? ` Paid ${formatUsdtBaseUnits(result.paidBaseUnits)} with transaction ${result.txHash}.`
+          : ''
+        return {
+          content: [{
+            type: 'text',
+            text: `Unlocked "${resourceId}".${paidText} Payload follows:\n${JSON.stringify(result.payload, null, 2)}`
+          }],
+          structuredContent: {
+            purchased: true,
+            resource: resourceId,
+            paidBaseUnits: result.paidBaseUnits.toString(),
+            txHash: result.txHash ?? null,
+            payload: result.payload
+          }
+        }
+      } catch (error) {
+        return toolError(error)
+      }
+    }
+  )
+}
+
 export function resolveMcpBridgePath () {
   return fileURLToPath(new URL('../bin/mcp-bridge.js', import.meta.url))
 }
@@ -163,12 +291,17 @@ function configureOpenCode (args, env, bridgeCommand) {
   }
 }
 
+const ENABLED_TOOLS = [
+  'getAddress', 'getBalance', 'getTokenBalance', 'transfer',
+  'ration_getCatalog', 'ration_purchaseResource'
+]
+
 function configureCodex (args, env, bridgeCommand) {
   const [command, ...commandArgs] = bridgeCommand
   const config = [
     `mcp_servers.${SERVER_NAME}.command=${tomlString(command)}`,
     `mcp_servers.${SERVER_NAME}.args=[${commandArgs.map(tomlString).join(',')}]`,
-    `mcp_servers.${SERVER_NAME}.enabled_tools=["getAddress","getBalance","getTokenBalance","transfer"]`,
+    `mcp_servers.${SERVER_NAME}.enabled_tools=[${ENABLED_TOOLS.map(tomlString).join(',')}]`,
     `mcp_servers.${SERVER_NAME}.tool_timeout_sec=${MCP_TOOL_TIMEOUT_SECONDS}`,
     `mcp_servers.${SERVER_NAME}.required=true`
   ]
@@ -185,6 +318,7 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
   const createTransport = options.createTransport ?? ((socket) => new StdioServerTransport(socket, socket))
   const makeTempDirectory = options.mkdtemp ?? mkdtemp
   const remove = options.rm ?? rm
+  const resolveDemoOriginImpl = options.resolveDemoOrigin ?? resolveDemoOrigin
   const pendingConfirmations = new Set()
   const server = new McpServer('ration-sandbox', '0.1.0')
     .useWdk({ seed })
@@ -192,6 +326,8 @@ export async function createSandboxMcpService (seed, config, expectedAddress, op
     .registerToken(CHAIN, 'USDT', { address: USDT_ADDRESS, decimals: 6 })
     .registerTools(SANDBOX_TOOLS)
   confirmTokenTransfers(server, pendingConfirmations)
+  const demoOrigin = resolveDemoOriginImpl(options.demoEnv ?? process.env)
+  registerDemoTools(server, demoOrigin, options)
   let directory
   let socketServer
   let connection

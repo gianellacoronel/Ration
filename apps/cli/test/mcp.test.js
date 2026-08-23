@@ -16,6 +16,46 @@ const config = {
   transactionMaxFee: 5000000000000000n
 }
 
+const DEMO_ORIGIN = 'https://demo.ration.test'
+const DEMO_SELLER = '0x1111111111111111111111111111111111111111'
+
+function demoCatalog () {
+  return {
+    seller: { address: DEMO_SELLER },
+    network: { name: 'sepolia', chainId: 11155111 },
+    token: { symbol: 'USDT', address: USDT_ADDRESS, decimals: 6 },
+    resources: [{
+      id: 'company-intel',
+      name: 'Company intelligence report',
+      method: 'GET',
+      path: '/api/demo/company-intel',
+      price: { amount: '0.02', amountBaseUnits: '20000', currency: 'USDT', decimals: 6 }
+    }]
+  }
+}
+
+function demoPaymentRequired () {
+  return {
+    paymentRequired: true,
+    error: { code: 'payment_required', message: 'Payment required.' },
+    payment: {
+      scheme: 'usdt-transfer',
+      network: { name: 'sepolia', chainId: 11155111 },
+      token: { symbol: 'USDT', address: USDT_ADDRESS, decimals: 6 },
+      payToAddress: DEMO_SELLER,
+      amount: '0.02',
+      amountBaseUnits: '20000'
+    }
+  }
+}
+
+function jsonResponse (status, body) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' }
+  })
+}
+
 function fakeWallet (events, seed, address = '0xEphemeral') {
   const account = {
     getAddress: async () => address,
@@ -85,7 +125,8 @@ test('serves the existing reads and confirmed Sepolia USDT transfer for the same
     await client.connect(transport)
     const tools = await client.listTools()
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
-      'getAddress', 'getBalance', 'getTokenBalance', 'transfer'
+      'getAddress', 'getBalance', 'getTokenBalance', 'ration_getCatalog',
+      'ration_purchaseResource', 'transfer'
     ])
 
     const address = await client.callTool({
@@ -184,6 +225,60 @@ test('does not broadcast a USDT transfer when Toolkit confirmation is declined',
   }
 })
 
+test('catalog discovery and purchase need no manual payment details or elicitation', async () => {
+  const seed = new Uint8Array(64).fill(7)
+  const events = []
+  const responses = [
+    jsonResponse(200, demoCatalog()),
+    jsonResponse(200, demoCatalog()),
+    jsonResponse(402, demoPaymentRequired()),
+    jsonResponse(200, { resource: 'company-intel', intel: { company: 'Acme' } })
+  ]
+  const service = await createSandboxMcpService(seed, config, '0xephemeral', {
+    WalletManager: fakeWallet(events, seed),
+    resolveDemoOrigin: () => DEMO_ORIGIN,
+    fetchImpl: async () => responses.shift()
+  })
+  const launch = service.configureLaunch('opencode', [], {})
+  const command = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT).mcp.ration.command
+  const transport = new StdioClientTransport({
+    command: command[0],
+    args: command.slice(1),
+    stderr: 'pipe'
+  })
+  const client = new Client({ name: 'ration-test', version: '1.0.0' })
+
+  try {
+    await client.connect(transport)
+    const discovered = await client.callTool({ name: 'ration_getCatalog', arguments: {} })
+    const purchased = await client.callTool({
+      name: 'ration_purchaseResource',
+      arguments: { resourceId: 'company-intel' }
+    })
+
+    assert.match(discovered.content[0].text, /company-intel.*0\.02 USDT/)
+    assert.deepEqual(purchased.structuredContent, {
+      purchased: true,
+      resource: 'company-intel',
+      paidBaseUnits: '20000',
+      txHash: '0xpayment',
+      payload: { resource: 'company-intel', intel: { company: 'Acme' } }
+    })
+    assert.deepEqual(events.filter((event) => event[0] === 'transfer'), [[
+      'transfer',
+      { token: USDT_ADDRESS, recipient: DEMO_SELLER, amount: 20000n }
+    ]])
+    assert.equal(events.some((event) => event[0] === 'quote-transfer'), false)
+    assert.deepEqual(events.filter((event) => event[0] === 'confirmed'), [
+      ['confirmed', '0xpayment', { target: 'confirmed', timeout: 180000 }],
+      ['confirmed', '0xpayment', { target: 'confirmed', timeout: 120000 }]
+    ])
+  } finally {
+    await client.close()
+    await service.close()
+  }
+})
+
 test('configures Codex transiently without putting wallet credentials in arguments', async () => {
   const seed = new Uint8Array(64).fill(4)
   const events = []
@@ -196,7 +291,7 @@ test('configures Codex transiently without putting wallet credentials in argumen
     const joined = launch.args.join(' ')
     const enabledTools = launch.args.find((arg) => arg.startsWith('mcp_servers.ration.enabled_tools='))
     assert.match(joined, /mcp_servers\.ration\.command/)
-    assert.equal(enabledTools, 'mcp_servers.ration.enabled_tools=["getAddress","getBalance","getTokenBalance","transfer"]')
+    assert.equal(enabledTools, 'mcp_servers.ration.enabled_tools=["getAddress","getBalance","getTokenBalance","transfer","ration_getCatalog","ration_purchaseResource"]')
     assert.equal(launch.args.includes('mcp_servers.ration.tool_timeout_sec=240'), true)
     assert.doesNotMatch(joined, /rationtreasury/)
     assert.equal(joined.includes(Buffer.from(seed).toString('hex')), false)

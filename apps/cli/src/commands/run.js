@@ -166,7 +166,7 @@ export async function runCommand (args, options, output) {
           output.log(`Budget    ${formatUsdtBaseUnits(initialUsdt)}`)
           output.log('Gas       Sepolia ETH infrastructure reserve')
           mcp = await sandbox.openMcp(options.mcpOptions)
-          output.log('Access    WDK MCP (address, balances, Sepolia USDT transfer)')
+          output.log('Access    Ration MCP (catalog, purchase, balances, Sepolia USDT transfer)')
           output.log('')
           output.log(`Starting ${input.command}...`)
           commandAttempted = true

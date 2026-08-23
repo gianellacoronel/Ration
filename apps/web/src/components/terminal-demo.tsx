@@ -172,6 +172,20 @@ function CommandOutput({ command, state }: { command: CommandName; state: Termin
     );
   }
 
+  if (command === "status") {
+    if (state !== "completed") return null;
+
+    return (
+      <div className="mt-5 text-ration-cream/60">
+        <p className="mb-2 text-ration-cream">Ration treasury</p>
+        <dl className="grid grid-cols-[6.5rem_auto]">
+          <dt>Balance</dt><dd className="text-ration-orange">{terminalDemo.treasuryBalance}</dd>
+          <dt>Status</dt><dd>locked</dd>
+        </dl>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-5">
       <RunOutput state={state} />

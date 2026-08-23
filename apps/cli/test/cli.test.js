@@ -416,6 +416,45 @@ test('setup reuses an existing treasury rather than creating a duplicate', async
   assert.equal(logs[0], 'Ration treasury already exists. Checking its address...')
 })
 
+test('status shows only the treasury and ignores legacy wallet entries', async () => {
+  const { logs, errors, output } = captureOutput()
+  const events = []
+  const exitCode = await main(['status'], {
+    output,
+    runWdkWalletList: async () => [
+      { name: 'rationtreasury', unlocked: false },
+      { name: 'ration1888', unlocked: false },
+      { name: 'rationfc41', unlocked: false }
+    ],
+    runWdkWalletUnlock: async (name) => events.push(['unlock', name]),
+    runWdkGetAddress: async (name, network) => {
+      events.push(['address', name, network])
+      return { address: '0xtreasury' }
+    },
+    runWdkGetUsdtBalance: async (name, network) => {
+      events.push(['balance', name, network])
+      return { balance: '5000000', formatted: '5 USDT' }
+    },
+    runWdkWalletLock: async (name) => events.push(['lock', name])
+  })
+
+  assert.equal(exitCode, 0)
+  assert.deepEqual(errors, [])
+  assert.deepEqual(events, [
+    ['unlock', 'rationtreasury'],
+    ['address', 'rationtreasury', 'smart-account-sepolia'],
+    ['balance', 'rationtreasury', 'smart-account-sepolia'],
+    ['lock', 'rationtreasury']
+  ])
+  assert.deepEqual(logs, [
+    'Ration treasury',
+    '',
+    'Address   0xtreasury',
+    'Balance   5.00 USDT',
+    'Status    locked'
+  ])
+})
+
 test('run explains the setup prerequisite', async () => {
   const { errors, output } = captureOutput()
   const exitCode = await main(['run', '--budget', '1', '--', 'agent'], {
@@ -850,8 +889,9 @@ test('help includes the complete command surface', async () => {
   const { logs, output } = captureOutput()
   assert.equal(await main(['help'], { output }), 0)
   assert.match(logs[0], /setup/)
+  assert.match(logs[0], /status/)
   assert.match(logs[0], /run --budget/)
-  assert.doesNotMatch(logs[0], /^\s+(create|list|unlock|address|fund)\b/m)
+  assert.doesNotMatch(logs[0], /^\s+(create|unlock|address|fund)\b/m)
 })
 
 test('removed persistent wallet commands are rejected', async () => {

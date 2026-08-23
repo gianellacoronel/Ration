@@ -19,6 +19,7 @@ const variablePattern = new RegExp(
 
 const commandHighlights: Record<CliCommandId, string> = {
   setup: "Human-owned treasury.",
+  status: "Explicit balance.",
   run: "Isolated execution.",
 };
 

@@ -2,6 +2,7 @@ export const HELP = `Usage: ration <command> [options]
 
 Commands:
   setup                 Create or recover the Ration treasury
+  status                Show the treasury address and balance
   run --budget <n> ...  Run a command in an ephemeral sandbox
   help                  Show this help
 

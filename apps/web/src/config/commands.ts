@@ -7,17 +7,23 @@ export const commandVariables = {
 
 export const commands = {
   setup: "ration setup",
+  status: "ration status",
   run: (budget: string, process: string) =>
     `ration run --budget ${budget} -- ${process}`,
 } as const;
 
-export type CommandName = "setup" | "run";
+export type CommandName = "setup" | "status" | "run";
 
 export const terminalCommandOptions = [
   {
     name: "setup",
     display: commands.setup,
     value: commands.setup,
+  },
+  {
+    name: "status",
+    display: commands.status,
+    value: commands.status,
   },
   {
     name: "run",
@@ -36,6 +42,15 @@ export const cliCommands = [
 Owner:  human
 Store:  encrypted WDK CLI wallet
 Agent:  no access`,
+  },
+  {
+    id: "status",
+    label: "Status",
+    command: commands.status,
+    output: `Ration treasury
+
+Balance: ${terminalDemo.treasuryBalance}
+Status:  locked`,
   },
   {
     id: "run",

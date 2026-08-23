@@ -59,6 +59,7 @@ npm link
 ration setup
 # Fund the displayed treasury address with test USD₮.
 
+ration status
 ration run --budget 1 -- claude
 ```
 
@@ -119,6 +120,7 @@ This project currently targets Sepolia and test USD₮. WDK packages are beta so
 
 ```bash
 npm run ration -- setup
+npm run ration -- status
 npm run ration -- run --budget 1 -- claude
 npm test
 ```

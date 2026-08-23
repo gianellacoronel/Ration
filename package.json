@@ -13,7 +13,7 @@
     "dev": "npm run dev --workspace @ration/web",
     "build": "npm run build --workspace @ration/web",
     "lint": "npm run lint --workspace @ration/web",
-    "test": "npm test --workspace @ration/cli",
-    "ration": "npm run ration --workspace @ration/cli"
+    "test": "npm test --workspace ration-ai",
+    "ration": "npm run ration --workspace ration-ai"
   }
 }

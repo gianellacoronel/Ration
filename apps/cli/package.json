@@ -1,11 +1,31 @@
 {
-  "name": "@ration/cli",
+  "name": "ration-ai",
   "version": "0.1.0",
-  "private": true,
   "description": "Disposable financial sandboxes for AI agents, built with Tether WDK.",
+  "keywords": [
+    "ai-agent",
+    "cli",
+    "mcp",
+    "tether",
+    "wallet",
+    "wdk"
+  ],
+  "homepage": "https://github.com/gianellacoronel/Ration#readme",
+  "bugs": "https://github.com/gianellacoronel/Ration/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gianellacoronel/Ration.git",
+    "directory": "apps/cli"
+  },
   "type": "module",
+  "exports": "./src/cli.js",
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
   "bin": {
-    "ration": "./bin/ration.js"
+    "ration": "bin/ration.js"
   },
   "engines": {
     "node": ">=22.18.0"
@@ -13,7 +33,11 @@
   "scripts": {
     "ration": "node bin/ration.js",
     "test": "node --test",
+    "prepublishOnly": "npm test",
     "wdk": "wdk"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@github/keytar": "7.10.6",

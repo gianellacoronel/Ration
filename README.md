@@ -45,9 +45,11 @@ The repository includes an `.nvmrc` matching the Node.js version required by the
 ### 1. Install
 
 ```bash
-npm install
-npm link
+npm install --global ration-ai
 ```
+
+For repository development instead, run `npm install` and `npm link --workspace
+ration-ai` from the repository root.
 
 ### 2. Configure The Paid Resource API
 

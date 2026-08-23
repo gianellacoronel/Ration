@@ -1,7 +1,7 @@
 import { USDT_ADDRESS } from './config.js'
 import { parseUsdt } from './domain.js'
 
-export const DEFAULT_DEMO_ORIGIN = 'http://localhost:3000'
+export const DEFAULT_DEMO_ORIGIN = 'https://ration-ten.vercel.app'
 export const DEMO_CHAIN_ID = 11155111
 export const PAYMENT_TX_HEADER = 'x-payment-tx-hash'
 export const DEMO_RESOURCE_PATHS = Object.freeze({

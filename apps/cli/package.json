@@ -1,6 +1,6 @@
 {
   "name": "ration-ai",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Disposable financial sandboxes for AI agents, built with Tether WDK.",
   "keywords": [
     "ai-agent",

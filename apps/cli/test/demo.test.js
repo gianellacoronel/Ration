@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { USDT_ADDRESS } from '../src/config.js'
 import {
+  DEFAULT_DEMO_ORIGIN,
   DemoPaymentError,
   joinDemoResourceUrl,
   parseCatalogPayload,
@@ -206,6 +207,7 @@ test('requires neutral resource descriptions and information coverage in the cat
 
 test('keeps catalog resource paths and API requests on the configured origin', async () => {
   assert.throws(() => joinDemoResourceUrl(ORIGIN, '//evil.example/resource'), /off the configured origin/)
+  assert.equal(resolveDemoOrigin({}), DEFAULT_DEMO_ORIGIN)
   assert.equal(resolveDemoOrigin({ RATION_DEMO_API_URL: `${ORIGIN}/ignored/path` }), ORIGIN)
   assert.throws(() => resolveDemoOrigin({ RATION_DEMO_API_URL: 'https://user:secret@demo.ration.test' }),
     /must not contain credentials/)

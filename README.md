@@ -83,11 +83,11 @@ their defaults for the judged Sepolia flow:
 | `RATION_DEMO_CHAIN_ID` | `11155111` | Sepolia chain ID |
 | `RATION_DEMO_REDEMPTIONS_PATH` | OS temporary directory | Persistent ledger preventing transaction-hash reuse |
 
-The CLI uses `http://localhost:3000` by default. If the web app is deployed at
-another origin, set `RATION_DEMO_API_URL` in the shell that launches Ration:
+The CLI uses `https://ration-ten.vercel.app` by default. For local development,
+set `RATION_DEMO_API_URL` in the shell that launches Ration:
 
 ```bash
-export RATION_DEMO_API_URL=https://your-ration-demo.example
+export RATION_DEMO_API_URL=http://localhost:3000
 ```
 
 `RATION_DEMO_API_URL` selects only the configured demo origin. Resource paths

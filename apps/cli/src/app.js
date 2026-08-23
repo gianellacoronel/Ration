@@ -1,42 +1,22 @@
-import { ADVANCED_HELP, HELP } from './config.js'
+import { HELP } from './config.js'
 import { createOutput } from './output.js'
 import { activeChildren } from './processes.js'
-import { createCommand } from './commands/create.js'
-import { debugAddressCommand, debugUnlockCommand } from './commands/debug.js'
-import { fundCommand } from './commands/fund.js'
-import { listCommand } from './commands/list.js'
 import { runCommand } from './commands/run.js'
 import { setupCommand } from './commands/setup.js'
 
-const COMMANDS = new Map([
-  ['create', createCommand],
-  ['run', runCommand],
-  ['list', listCommand],
-  ['fund', fundCommand],
-  ['unlock', debugUnlockCommand],
-  ['address', debugAddressCommand]
-])
-
 async function dispatchMain (args, options = {}) {
-  const { style, output } = createOutput(options.output ?? console)
-  const context = { ...options, style }
+  const output = createOutput(options.output ?? console)
 
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h' ||
     (args[0] === 'help' && args.length === 1)) {
     output.log(HELP)
     return 0
   }
-  if (args[0] === 'help' && args[1] === '--advanced' && args.length === 2) {
-    output.log(ADVANCED_HELP)
-    return 0
-  }
-  if (args[0] === 'setup' && args.length === 1) return setupCommand(context, output)
+  if (args[0] === 'setup' && args.length === 1) return setupCommand(options, output)
   if (args[0] === 'setup' && args.length === 2 && args[1] === '--insecure') {
-    return setupCommand(context, output, { insecure: true })
+    return setupCommand(options, output, { insecure: true })
   }
-
-  const command = COMMANDS.get(args[0])
-  if (command) return command(args, context, output)
+  if (args[0] === 'run') return runCommand(args, options, output)
 
   output.error(`Unknown command: ${args.join(' ')}`)
   output.error("Run 'ration help' for usage.")

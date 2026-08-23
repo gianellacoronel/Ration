@@ -9,10 +9,9 @@ export const commands = {
   setup: "ration setup",
   run: (budget: string, process: string) =>
     `ration run --budget ${budget} -- ${process}`,
-  debug: (budget: string) => `ration create --budget ${budget}`,
 } as const;
 
-export type CommandName = "setup" | "run" | "debug";
+export type CommandName = "setup" | "run";
 
 export const terminalCommandOptions = [
   {
@@ -24,11 +23,6 @@ export const terminalCommandOptions = [
     name: "run",
     display: commands.run(commandVariables.budget, commandVariables.process),
     value: commands.run(terminalDemo.budget, terminalDemo.process),
-  },
-  {
-    name: "debug",
-    display: commands.debug(commandVariables.budget),
-    value: commands.debug(terminalDemo.budget),
   },
 ] satisfies Array<{ name: CommandName; display: string; value: string }>;
 
@@ -59,15 +53,6 @@ Process started
 
 Remainder swept
 Sandbox disposed`,
-  },
-  {
-    id: "debug",
-    label: "Debug",
-    command: commands.debug(commandVariables.budget),
-    output: `Advanced flow only
-
-Creates a persistent WDK CLI wallet.
-Not used by ration run.`,
   },
 ] as const;
 

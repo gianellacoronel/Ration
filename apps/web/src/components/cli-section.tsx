@@ -18,9 +18,8 @@ const variablePattern = new RegExp(
 );
 
 const commandHighlights: Record<CliCommandId, string> = {
-  setup: "Simple commands.",
+  setup: "Human-owned treasury.",
   run: "Isolated execution.",
-  debug: "Explicit money.",
 };
 
 function HighlightedCommand({ command }: { command: string }) {

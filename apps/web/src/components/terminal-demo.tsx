@@ -172,19 +172,6 @@ function CommandOutput({ command, state }: { command: CommandName; state: Termin
     );
   }
 
-  if (command === "debug") {
-    if (state !== "completed") return null;
-
-    return (
-      <dl className="mt-5 grid grid-cols-[6.5rem_auto] text-ration-cream/60">
-        <dt>Flow</dt>
-        <dd className="text-ration-cream">persistent debug wallet</dd>
-        <dt>Primary</dt>
-        <dd className="text-ration-orange">no</dd>
-      </dl>
-    );
-  }
-
   return (
     <div className="mt-5">
       <RunOutput state={state} />

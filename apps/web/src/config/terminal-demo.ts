@@ -1,5 +1,4 @@
 export const terminalDemo = {
-  sandbox: "0x7b3c...91fa",
   budget: "1",
   process: "claude",
   balance: "1.00 USDT",

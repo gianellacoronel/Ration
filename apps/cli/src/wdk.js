@@ -15,10 +15,6 @@ import {
 } from './errors.js'
 import { activeChildren } from './processes.js'
 
-export function resolveWdkNetwork (network) {
-  return network === 'sepolia' ? NETWORK : network
-}
-
 export function resolveWdkCliPath (resolve = import.meta.resolve) {
   try {
     return fileURLToPath(resolve('@tetherto/wdk-cli/bin/wdk.mjs'))
@@ -183,8 +179,7 @@ export function runWdkWalletList (options = {}) {
 }
 
 export function runWdkWalletUnlock (name, options = {}) {
-  const ttl = options.ttl ?? SESSION_TTL_MINUTES
-  const args = ['wallet', 'unlock', '--name', name, '--ttl', String(ttl)]
+  const args = ['wallet', 'unlock', '--name', name, '--ttl', String(SESSION_TTL_MINUTES)]
   const { emptyPassphrase, ...rest } = options
   return spawnInteractive(args, WalletUnlockError, emptyPassphrase ? 1 : 0, rest)
 }
@@ -194,15 +189,6 @@ export function runWdkWalletLock (name, options = {}) {
     ['wallet', 'lock', '--name', name],
     WalletLockError,
     (result) => result?.wallet === name && result?.locked === true,
-    options
-  )
-}
-
-export function runWdkWalletLockAll (options = {}) {
-  return spawnJson(
-    ['wallet', 'lock', '--all'],
-    WalletLockError,
-    (result) => result?.locked === true && result?.all === true,
     options
   )
 }

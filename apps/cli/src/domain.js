@@ -1,23 +1,4 @@
-import { randomUUID } from 'node:crypto'
-
 import { TREASURY_NAME } from './config.js'
-
-export function createWalletName (id = randomUUID()) {
-  return `ration${id.replaceAll('-', '').slice(0, 4).toLowerCase()}`
-}
-
-export function isRationWalletName (name) {
-  return /^ration[0-9a-f]{4}$/.test(name)
-}
-
-export function createUniqueWalletName (wallets, generator) {
-  const existing = new Set(wallets.map((wallet) => wallet.name))
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const name = generator()
-    if (isRationWalletName(name) && !existing.has(name)) return name
-  }
-  throw new Error('Could not generate a unique sandbox identifier.')
-}
 
 export function isTreasuryConfigured (wallets) {
   return wallets.some((wallet) => wallet.name === TREASURY_NAME)
@@ -44,8 +25,4 @@ export function balanceBaseUnits (result) {
   }
   const match = result?.formatted?.match(/^(\d+(?:\.\d{1,6})?)\s+USDT$/)
   return match ? parseUsdt(match[1]) ?? 0n : 0n
-}
-
-export function formatBalance (result) {
-  return formatUsdtBaseUnits(balanceBaseUnits(result))
 }

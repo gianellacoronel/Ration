@@ -4,16 +4,12 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 
 import {
-  WalletBalanceError,
   WalletLockError,
   WalletTransferError,
   WalletUnlockError,
   confirmTransfer,
   createWdkOutputFilter,
-  createWalletName,
-  isRationWalletName,
   main as cliMain,
-  resolveWdkNetwork,
   runRequestedCommand,
   runWdkGetAddress,
   runWdkGetNetworkConfig,
@@ -22,7 +18,6 @@ import {
   runWdkWalletCreate,
   runWdkWalletList,
   runWdkWalletLock,
-  runWdkWalletLockAll,
   runWdkWalletUnlock
 } from '../src/cli.js'
 
@@ -81,19 +76,6 @@ function preview (to = '0xsandbox') {
     estimatedFeeFormatted: '0.05 USDT'
   }
 }
-
-test('generates short single-token sandbox identifiers', () => {
-  const name = createWalletName('a31f0000-0000-0000-0000-000000000000')
-  assert.equal(name, 'rationa31f')
-  assert.equal(isRationWalletName(name), true)
-  assert.equal(isRationWalletName('ration-a31f'), false)
-  assert.equal(isRationWalletName('rationtreasury'), false)
-})
-
-test('maps the friendly Sepolia name to the configured account environment', () => {
-  assert.equal(resolveWdkNetwork('sepolia'), 'smart-account-sepolia')
-  assert.equal(resolveWdkNetwork('smart-account-sepolia'), 'smart-account-sepolia')
-})
 
 test('delegates secret-bearing wallet creation directly to the official CLI terminal', async () => {
   const child = new EventEmitter()
@@ -280,23 +262,6 @@ test('uses structured official CLI output for wallet listing and locking', async
   ])
 })
 
-test('uses the official all-wallet lock command', async () => {
-  let invocation
-  const result = await runWdkWalletLockAll({
-    wdkCliPath: '/wdk.mjs',
-    spawnProcess: (...args) => {
-      invocation = args
-      return jsonChild({ locked: true, all: true })
-    }
-  })
-  assert.equal(result.locked, true)
-  assert.deepEqual(invocation, [
-    process.execPath,
-    ['/wdk.mjs', 'wallet', 'lock', '--all', '--json'],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
-  ])
-})
-
 test('launches the requested command directly with inherited terminal streams', async () => {
   const child = new EventEmitter()
   let invocation
@@ -430,7 +395,7 @@ test('setup creates the deterministic treasury, resolves its address, and locks 
     ['lock', 'rationtreasury']
   ])
   assert.equal(logs.includes('  Address   0xtreasury'), true)
-  assert.equal(logs.at(-1), 'Fund this address with test USD₮ before creating a sandbox.')
+  assert.equal(logs.at(-1), 'Fund this address with test USD₮ before running a session.')
   assert.equal(logs.some((line) => /EOA|4337|paymaster|smart-account/.test(line)), false)
 })
 
@@ -451,27 +416,20 @@ test('setup reuses an existing treasury rather than creating a duplicate', async
   assert.equal(logs[0], 'Ration treasury already exists. Checking its address...')
 })
 
-test('commands that need a treasury explain the setup prerequisite', async () => {
-  for (const args of [
-    ['create', '--budget', '5'],
-    ['list'],
-    ['fund', 'rationa31f', '--amount', '1'],
-    ['run', '--budget', '1', '--', 'agent']
-  ]) {
-    const { errors, output } = captureOutput()
-    const exitCode = await main(args, {
-      output,
-      runWdkWalletList: async () => []
-    })
-    assert.equal(exitCode, 1)
-    assert.deepEqual(errors, ["Ration is not set up yet. Run 'ration setup' first."])
-  }
+test('run explains the setup prerequisite', async () => {
+  const { errors, output } = captureOutput()
+  const exitCode = await main(['run', '--budget', '1', '--', 'agent'], {
+    output,
+    runWdkWalletList: async () => []
+  })
+  assert.equal(exitCode, 1)
+  assert.deepEqual(errors, ["Ration is not set up yet. Run 'ration setup' first."])
 })
 
 test('funding fails closed before unlocking when Paymaster Token mode is malformed', async () => {
   const { errors, output } = captureOutput()
   let unlocked = false
-  const exitCode = await cliMain(['create', '--budget', '5'], {
+  const exitCode = await cliMain(['run', '--budget', '5', '--', 'agent'], {
     output,
     runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: false }],
     runWdkGetNetworkConfig: async () => ({
@@ -487,398 +445,6 @@ test('funding fails closed before unlocking when Paymaster Token mode is malform
   assert.equal(unlocked, false)
   assert.match(errors[0], /Paymaster Token mode is not configured/)
   assert.doesNotMatch(errors.join('\n'), /private-key/)
-})
-
-test('create verifies funds, creates a unique sandbox, previews, confirms, funds, and locks both wallets', async () => {
-  const { logs, errors, output } = captureOutput()
-  const events = []
-  let generated = 0
-  const exitCode = await main(['create', '--budget', '5'], {
-    output,
-    createWalletName: () => generated++ === 0 ? 'rationdead' : 'rationa31f',
-    runWdkWalletList: async () => [
-      { name: 'rationtreasury', unlocked: false },
-      { name: 'rationdead', unlocked: false }
-    ],
-    runWdkWalletUnlock: async (name) => events.push(['unlock', name]),
-    runWdkGetUsdtBalance: async (name, network) => {
-      events.push(['balance', name, network])
-      return { balance: '42000000', formatted: '42 USDT' }
-    },
-    runWdkWalletCreate: async (name) => events.push(['create', name]),
-    runWdkGetAddress: async (name, network) => {
-      events.push(['address', name, network])
-      return { address: '0xsandbox' }
-    },
-    runWdkTransfer: async (input) => {
-      events.push([input.dryRun ? 'preview' : 'transfer', input])
-      if (input.dryRun) return preview()
-      return { network: input.network, to: input.to, txHash: '0xtx' }
-    },
-    confirmTransfer: async () => {
-      events.push(['confirm'])
-      return true
-    },
-    runWdkWalletLock: async (name) => events.push(['lock', name])
-  })
-
-  assert.equal(exitCode, 0)
-  assert.deepEqual(errors, [])
-  assert.deepEqual(events.map((event) => event[0]), [
-    'unlock', 'balance', 'create', 'unlock', 'address', 'preview', 'confirm', 'transfer', 'lock', 'lock'
-  ])
-  assert.deepEqual(events.slice(-2), [['lock', 'rationa31f'], ['lock', 'rationtreasury']])
-  assert.equal(logs.includes('  Sandbox   rationa31f'), true)
-  assert.equal(logs.includes('  Address   0xsandbox'), true)
-  assert.equal(logs.includes('  Balance   5.00 USDT'), true)
-  assert.equal(logs.includes('  Status    locked'), true)
-  assert.equal(logs.some((line) => /EOA|4337|paymaster|smart-account/.test(line)), false)
-})
-
-test('create quotes the total before rejecting insufficient treasury funds', async () => {
-  const { errors, output } = captureOutput()
-  let created = false
-  const locks = []
-  const exitCode = await main(['create', '--budget', '5'], {
-    output,
-    createWalletName: () => 'rationa31f',
-    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: false }],
-    runWdkWalletUnlock: async () => {},
-    runWdkGetUsdtBalance: async () => ({ balance: '4999999', formatted: '4.999999 USDT' }),
-    runWdkWalletCreate: async () => { created = true },
-    runWdkGetAddress: async () => ({ address: '0xsandbox' }),
-    runWdkTransfer: async () => preview(),
-    runWdkWalletLock: async (name) => locks.push(name)
-  })
-  assert.equal(exitCode, 1)
-  assert.equal(created, true)
-  assert.deepEqual(locks, ['rationa31f', 'rationtreasury'])
-  assert.equal(errors[0], 'Insufficient treasury funds: available 4.999999 USDT, required 5.05 USDT.')
-})
-
-test('create leaves a declined sandbox empty and locks both wallets', async () => {
-  const { logs, output } = captureOutput()
-  const locks = []
-  let broadcasts = 0
-  const exitCode = await main(['create', '--budget', '1'], {
-    output,
-    createWalletName: () => 'rationa31f',
-    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
-    runWdkGetUsdtBalance: async () => ({ balance: '10000000', formatted: '10 USDT' }),
-    runWdkWalletCreate: async () => {},
-    runWdkWalletUnlock: async () => {},
-    runWdkGetAddress: async () => ({ address: '0xsandbox' }),
-    runWdkTransfer: async (input) => {
-      if (!input.dryRun) broadcasts++
-      return preview()
-    },
-    confirmTransfer: async () => false,
-    runWdkWalletLock: async (name) => locks.push(name)
-  })
-  assert.equal(exitCode, 0)
-  assert.equal(broadcasts, 0)
-  assert.deepEqual(locks, ['rationa31f', 'rationtreasury'])
-  assert.equal(logs.at(-1), "Sandbox 'rationa31f' was created empty and locked. Nothing was broadcast.")
-})
-
-test('create locks both wallets when funding fails', async () => {
-  const { errors, output } = captureOutput()
-  const locks = []
-  const exitCode = await main(['create', '--budget', '5'], {
-    output,
-    createWalletName: () => 'rationa31f',
-    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
-    runWdkGetUsdtBalance: async () => ({ balance: '50000000', formatted: '50 USDT' }),
-    runWdkWalletCreate: async () => {},
-    runWdkWalletUnlock: async () => {},
-    runWdkGetAddress: async () => ({ address: '0xsandbox' }),
-    runWdkTransfer: async () => {
-      throw new WalletTransferError('dry-run', 1, null, 'token balance lower than allowance', 'TRANSACTION_CREATION_FAILED')
-    },
-    runWdkWalletLock: async (name) => locks.push(name)
-  })
-  assert.equal(exitCode, 1)
-  assert.deepEqual(locks, ['rationa31f', 'rationtreasury'])
-  assert.equal(errors[0], 'The treasury does not have enough USD₮ for this amount and its gas fee.')
-})
-
-test('create rejects a zero-fee quote without confirming or broadcasting', async () => {
-  const { errors, output } = captureOutput()
-  const locks = []
-  let confirmed = false
-  let broadcasts = 0
-  const exitCode = await main(['create', '--budget', '5'], {
-    output,
-    createWalletName: () => 'rationa31f',
-    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
-    runWdkGetUsdtBalance: async () => ({ balance: '50000000', formatted: '50 USDT' }),
-    runWdkWalletCreate: async () => {},
-    runWdkWalletUnlock: async () => {},
-    runWdkGetAddress: async () => ({ address: '0xsandbox' }),
-    runWdkTransfer: async (input) => {
-      if (!input.dryRun) broadcasts++
-      return { ...preview(), estimatedFee: '0' }
-    },
-    confirmTransfer: async () => { confirmed = true },
-    runWdkWalletLock: async (name) => locks.push(name)
-  })
-
-  assert.equal(exitCode, 1)
-  assert.equal(confirmed, false)
-  assert.equal(broadcasts, 0)
-  assert.deepEqual(locks, ['rationa31f', 'rationtreasury'])
-  assert.deepEqual(errors, ['WDK did not return a valid USD₮ gas quote. Nothing was broadcast.'])
-})
-
-test('create rejects a gas quote at or above the WDK safety limit', async () => {
-  for (const estimatedFee of ['100000', '2431183']) {
-    const { errors, output } = captureOutput()
-    const locks = []
-    let confirmed = false
-    const exitCode = await main(['create', '--budget', '5'], {
-      output,
-      createWalletName: () => 'rationa31f',
-      runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
-      runWdkGetUsdtBalance: async () => ({ balance: '50000000', formatted: '50 USDT' }),
-      runWdkWalletCreate: async () => {},
-      runWdkWalletUnlock: async () => {},
-      runWdkGetAddress: async () => ({ address: '0xsandbox' }),
-      runWdkTransfer: async () => ({ ...preview(), estimatedFee }),
-      confirmTransfer: async () => { confirmed = true },
-      runWdkWalletLock: async (name) => locks.push(name)
-    })
-
-    assert.equal(exitCode, 1)
-    assert.equal(confirmed, false)
-    assert.deepEqual(locks, ['rationa31f', 'rationtreasury'])
-    assert.match(errors[0], /exceeds the WDK safety limit/)
-    assert.equal(errors[1], 'Nothing was broadcast.')
-  }
-})
-
-test('paymaster failures are redacted and both wallets are locked', async () => {
-  const { errors, output } = captureOutput()
-  const locks = []
-  const providerDetail = 'never-print-this-provider-detail'
-  const exitCode = await main(['create', '--budget', '5'], {
-    output,
-    createWalletName: () => 'rationa31f',
-    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
-    runWdkGetUsdtBalance: async () => ({ balance: '50000000', formatted: '50 USDT' }),
-    runWdkWalletCreate: async () => {},
-    runWdkWalletUnlock: async () => {},
-    runWdkGetAddress: async () => ({ address: '0xsandbox' }),
-    runWdkTransfer: async (input) => {
-      if (input.dryRun) return preview()
-      throw new WalletTransferError(
-        'broadcast',
-        1,
-        null,
-        `Paymaster rejected: ${providerDetail}`,
-        'UNKNOWN_ERROR'
-      )
-    },
-    confirmTransfer: async () => true,
-    runWdkWalletLock: async (name) => locks.push(name)
-  })
-
-  assert.equal(exitCode, 1)
-  assert.deepEqual(locks, ['rationa31f', 'rationtreasury'])
-  assert.match(errors[0], /USD₮ gas payment failed through Candide/)
-  assert.doesNotMatch(errors.join('\n'), new RegExp(providerDetail))
-})
-
-test('a lock failure prevents create from claiming success', async () => {
-  const { logs, errors, output } = captureOutput()
-  const exitCode = await main(['create', '--budget', '1'], {
-    output,
-    createWalletName: () => 'rationa31f',
-    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
-    runWdkGetUsdtBalance: async () => ({ balance: '10000000', formatted: '10 USDT' }),
-    runWdkWalletCreate: async () => {},
-    runWdkWalletUnlock: async () => {},
-    runWdkGetAddress: async () => ({ address: '0xsandbox' }),
-    runWdkTransfer: async (input) => input.dryRun ? preview() : ({ txHash: '0xtx' }),
-    confirmTransfer: async () => true,
-    runWdkWalletLock: async (name) => {
-      if (name === 'rationtreasury') throw new WalletLockError(1, null, 'failed')
-    }
-  })
-  assert.equal(exitCode, 1)
-  assert.equal(logs.includes('Sandbox created'), false)
-  assert.equal(errors.includes("Security cleanup failed: 'rationtreasury' could not be locked."), true)
-})
-
-test('default list never unlocks wallets and never asks for a passphrase', async () => {
-  const { logs, errors, output } = captureOutput()
-  const calls = []
-  const exitCode = await main(['list'], {
-    output,
-    runWdkWalletList: async () => [
-      { name: 'rationtreasury', unlocked: false },
-      { name: 'personal', unlocked: true },
-      { name: 'rationa31f', unlocked: false },
-      { name: 'rationc912', unlocked: true }
-    ],
-    runWdkWalletUnlock: async (name) => calls.push(['unlock', name]),
-    runWdkGetUsdtBalance: async () => { throw new Error('should not read balances') },
-    runWdkGetAddress: async (name) => calls.push(['address', name]),
-    runWdkWalletLock: async (name) => calls.push(['lock', name])
-  })
-  assert.equal(exitCode, 0)
-  assert.deepEqual(errors, [])
-  assert.deepEqual(calls, [])
-  assert.deepEqual(logs, [
-    'Ration',
-    '',
-    'Treasury',
-    '  hidden      locked',
-    '',
-    'Sandboxes',
-    '  rationa31f   hidden      locked',
-    '  rationc912   hidden      active',
-    '',
-    '  ration list --balances   Reveal balances'
-  ])
-})
-
-test('unlocked sandboxes show their remaining session time', async () => {
-  const { logs, output } = captureOutput()
-  const exitCode = await main(['list'], {
-    output,
-    runWdkWalletList: async () => [
-      { name: 'rationtreasury', unlocked: false },
-      { name: 'ration8c42', unlocked: true, ttlMs: 300000, ttlRemaining: 479000 }
-    ],
-    runWdkWalletUnlock: async () => {},
-    runWdkGetUsdtBalance: async () => { throw new Error('should not read balances') },
-    runWdkGetAddress: async () => { throw new Error('should not read addresses') },
-    runWdkWalletLock: async () => {}
-  })
-  assert.equal(exitCode, 0)
-  assert.equal(logs.includes('  ration8c42   hidden      active · 8m'), true)
-})
-
-test('list --balances unlocks each managed wallet and returns it to locked state', async () => {
-  const { logs, errors, output } = captureOutput()
-  const unlocks = []
-  const locks = []
-  const balances = {
-    rationtreasury: '42000000',
-    rationa31f: '5000000',
-    rationc912: '2000000'
-  }
-  const exitCode = await cliMain(['list', '--balances'], {
-    output,
-    runWdkWalletList: async () => [
-      { name: 'rationtreasury', unlocked: false },
-      { name: 'personal', unlocked: true },
-      { name: 'rationa31f', unlocked: false },
-      { name: 'rationc912', unlocked: true }
-    ],
-    runWdkWalletUnlock: async (name) => unlocks.push(name),
-    runWdkGetUsdtBalance: async (name) => ({
-      balance: balances[name],
-      formatted: 'unused'
-    }),
-    runWdkWalletLock: async (name) => locks.push(name)
-  })
-  assert.equal(exitCode, 0)
-  assert.deepEqual(errors, [])
-  assert.deepEqual(unlocks, ['rationtreasury', 'rationa31f'])
-  assert.deepEqual(locks, ['rationtreasury', 'rationa31f', 'rationc912'])
-  assert.deepEqual(logs, [
-    'Ration',
-    '',
-    'Treasury',
-    '  42.00 USDT  locked',
-    '',
-    'Sandboxes',
-    '  rationa31f   5.00 USDT   locked',
-    '  rationc912   2.00 USDT   active'
-  ])
-})
-
-test('list --balances identifies RPC rejection without exposing provider details', async () => {
-  const { errors, output } = captureOutput()
-  const locks = []
-  const exitCode = await cliMain(['list', '--balances'], {
-    output,
-    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: false }],
-    runWdkWalletUnlock: async () => {},
-    runWdkGetUsdtBalance: async () => {
-      throw new WalletBalanceError(1, null, 'chain is not available on free plan', 'UNKNOWN_ERROR')
-    },
-    runWdkWalletLock: async (name) => locks.push(name)
-  })
-
-  assert.equal(exitCode, 1)
-  assert.deepEqual(locks, ['rationtreasury'])
-  assert.deepEqual(errors, ['The configured Sepolia RPC provider could not serve the balance request.'])
-})
-
-test('verbose list adds only Ration addresses', async () => {
-  const { logs, output } = captureOutput()
-  const exitCode = await main(['list', '--verbose'], {
-    output,
-    runWdkWalletList: async () => [
-      { name: 'rationtreasury', unlocked: false },
-      { name: 'rationa31f', unlocked: true }
-    ],
-    runWdkGetAddress: async (name) => ({ address: `0x${name}` })
-  })
-  assert.equal(exitCode, 0)
-  assert.equal(logs.filter((line) => line.includes('0x')).length, 1)
-  assert.equal(logs.includes('    0xrationa31f'), true)
-})
-
-test('verbose list resolves addresses without unlocking when --balances is passed', async () => {
-  const { logs, output } = captureOutput()
-  const unlocks = []
-  const locks = []
-  const exitCode = await main(['list', '--verbose', '--balances'], {
-    output,
-    runWdkWalletList: async () => [
-      { name: 'rationtreasury', unlocked: false },
-      { name: 'rationa31f', unlocked: false }
-    ],
-    runWdkWalletUnlock: async (name) => unlocks.push(name),
-    runWdkGetUsdtBalance: async () => ({ balance: '1000000', formatted: 'unused' }),
-    runWdkGetAddress: async (name) => ({ address: `0x${name}` }),
-    runWdkWalletLock: async (name) => locks.push(name)
-  })
-  assert.equal(exitCode, 0)
-  assert.deepEqual(unlocks, ['rationtreasury', 'rationa31f'])
-  assert.deepEqual(locks, ['rationtreasury', 'rationa31f'])
-  assert.equal(logs.includes('  1.00 USDT   locked'), true)
-  assert.equal(logs.includes('    0xrationtreasury'), false)
-  assert.equal(logs.includes('    0xrationa31f'), true)
-})
-
-test('fund tops up from the fixed treasury and locks both wallets', async () => {
-  const { logs, output } = captureOutput()
-  const transfers = []
-  const locks = []
-  const exitCode = await main(['fund', 'rationa31f', '--amount', '2'], {
-    output,
-    runWdkWalletList: async () => [
-      { name: 'rationtreasury', unlocked: false },
-      { name: 'rationa31f', unlocked: false }
-    ],
-    runWdkWalletUnlock: async () => {},
-    runWdkGetUsdtBalance: async () => ({ balance: '10000000', formatted: '10 USDT' }),
-    runWdkGetAddress: async () => ({ address: '0xsandbox' }),
-    runWdkTransfer: async (input) => {
-      transfers.push(input)
-      return input.dryRun ? preview() : ({ txHash: '0xtx' })
-    },
-    confirmTransfer: async () => true,
-    runWdkWalletLock: async (name) => locks.push(name)
-  })
-  assert.equal(exitCode, 0)
-  assert.equal(transfers.every((input) => input.sourceWallet === 'rationtreasury'), true)
-  assert.deepEqual(locks, ['rationa31f', 'rationtreasury'])
-  assert.equal(logs.at(-1), "Sandbox 'rationa31f' funded with 2.00 USDT.")
 })
 
 test('run owns one ephemeral sandbox from funding through sweep and disposal', async () => {
@@ -967,6 +533,81 @@ test('run fails before funding when the treasury cannot cover budget plus fee', 
     'Insufficient treasury funds: available 1.02 USDT, required 1.05 USDT.',
     "Add USD₮ to the treasury address shown by 'ration setup', then try again."
   ])
+})
+
+test('run rejects missing or unsafe fee quotes before confirmation', async () => {
+  for (const estimatedFee of ['0', '100000', '2431183']) {
+    const { errors, output } = captureOutput()
+    const events = []
+    const exitCode = await main(['run', '--budget', '1', '--', 'agent'], {
+      output,
+      runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
+      createEphemeralSandbox: async () => ({
+        address: '0xephemeral',
+        dispose: () => events.push('dispose')
+      }),
+      runWdkGetAddress: async () => ({ address: '0xtreasury' }),
+      runWdkGetUsdtBalance: async () => ({ balance: '2000000', formatted: '2 USDT' }),
+      runWdkTransfer: async () => ({ ...preview('0xephemeral'), estimatedFee }),
+      confirmTransfer: async () => events.push('confirm'),
+      runWdkWalletLock: async () => events.push('lock')
+    })
+
+    assert.equal(exitCode, 1)
+    assert.deepEqual(events, ['lock', 'dispose'])
+    if (estimatedFee === '0') assert.match(errors[0], /valid USD₮ gas quote/)
+    else assert.match(errors[0], /exceeds the WDK safety limit/)
+  }
+})
+
+test('declining run funding broadcasts nothing and disposes the sandbox', async () => {
+  const { logs, output } = captureOutput()
+  const events = []
+  const exitCode = await main(['run', '--budget', '1', '--', 'agent'], {
+    output,
+    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
+    createEphemeralSandbox: async () => ({
+      address: '0xephemeral',
+      dispose: () => events.push('dispose')
+    }),
+    runWdkGetAddress: async () => ({ address: '0xtreasury' }),
+    runWdkGetUsdtBalance: async () => ({ balance: '2000000', formatted: '2 USDT' }),
+    runWdkTransfer: async (input) => {
+      events.push(input.dryRun ? 'preview' : 'broadcast')
+      return preview('0xephemeral')
+    },
+    confirmTransfer: async () => false,
+    runWdkWalletLock: async () => events.push('lock')
+  })
+
+  assert.equal(exitCode, 0)
+  assert.deepEqual(events, ['preview', 'lock', 'dispose'])
+  assert.equal(logs.at(-1), 'Session cancelled. Nothing was broadcast.')
+})
+
+test('run redacts paymaster broadcast failures', async () => {
+  const { errors, output } = captureOutput()
+  const providerDetail = 'never-print-this-provider-detail'
+  const exitCode = await main(['run', '--budget', '1', '--', 'agent'], {
+    output,
+    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: true }],
+    createEphemeralSandbox: async () => ({ address: '0xephemeral', dispose: () => {} }),
+    runWdkGetAddress: async () => ({ address: '0xtreasury' }),
+    runWdkGetUsdtBalance: async () => ({ balance: '2000000', formatted: '2 USDT' }),
+    runWdkTransfer: async (input) => {
+      if (input.dryRun) return preview('0xephemeral')
+      throw new WalletTransferError(
+        'broadcast', 1, null, `Paymaster rejected: ${providerDetail}`, 'UNKNOWN_ERROR'
+      )
+    },
+    confirmTransfer: async () => true,
+    runWdkWalletLock: async () => {},
+    waitForSandboxFunding: async () => { throw new Error('not found') }
+  })
+
+  assert.equal(exitCode, 1)
+  assert.match(errors[0], /USD₮ gas payment failed through Candide/)
+  assert.doesNotMatch(errors.join('\n'), new RegExp(providerDetail))
 })
 
 test('submitted funding is located and swept when treasury locking fails', async () => {
@@ -1090,7 +731,7 @@ test('an interrupt during funding confirmation prevents child launch but still s
   assert.deepEqual(events, ['sweep', 'dispose'])
 })
 
-test('run rejects persistent sandbox syntax and invalid budgets', async () => {
+test('run rejects invalid syntax and budgets', async () => {
   for (const args of [
     ['run', 'rationa31f', '--ttl', '10', '--', 'claude'],
     ['run', '--budget', '0', '--', 'claude'],
@@ -1175,55 +816,6 @@ test('Ctrl+C stops the child, then sweeps and disposes the ephemeral sandbox', a
   assert.deepEqual(events, [['kill', 'SIGINT'], ['sweep'], ['dispose']])
 })
 
-test('normal create syntax does not accept source-wallet selection', async () => {
-  const { errors, output } = captureOutput()
-  const exitCode = await main(['create', '--from', 'personal', '--budget', '5'], { output })
-  assert.equal(exitCode, 1)
-  assert.deepEqual(errors, ['Usage: ration create --budget <amount>'])
-})
-
-test('an interrupt after advanced funding confirmation prevents broadcast', async () => {
-  const { output } = captureOutput()
-  let broadcasts = 0
-  const exitCode = await main(['fund', 'rationa31f', '--amount', '1'], {
-    output,
-    runWdkWalletList: async () => [
-      { name: 'rationtreasury', unlocked: false },
-      { name: 'rationa31f', unlocked: false }
-    ],
-    runWdkWalletUnlock: async () => {},
-    runWdkGetUsdtBalance: async () => ({ balance: '2000000', formatted: '2 USDT' }),
-    runWdkGetAddress: async () => ({ address: '0xsandbox' }),
-    runWdkTransfer: async (input) => {
-      if (!input.dryRun) broadcasts++
-      return preview('0xsandbox')
-    },
-    confirmTransfer: async () => {
-      process.emit('SIGINT')
-      return true
-    },
-    runWdkWalletLock: async () => {}
-  })
-
-  assert.equal(exitCode, 130)
-  assert.equal(broadcasts, 0)
-})
-
-test('advanced unlock refuses to leave the treasury exposed', async () => {
-  const { errors, output } = captureOutput()
-  let unlocked = false
-  const exitCode = await main(['unlock', 'rationtreasury'], {
-    output,
-    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: false }],
-    runWdkWalletUnlock: async () => { unlocked = true }
-  })
-  assert.equal(exitCode, 1)
-  assert.equal(unlocked, false)
-  assert.deepEqual(errors, [
-    'The treasury cannot be left unlocked. Ration only opens it for a specific operation.'
-  ])
-})
-
 test('cleanup treats an already locked wallet as secure', async () => {
   const { errors, output } = captureOutput()
   const exitCode = await main(['setup'], {
@@ -1254,10 +846,25 @@ test('an interrupt waits for wallet cleanup and returns the signal exit code', a
   assert.deepEqual(locks, ['rationtreasury'])
 })
 
-test('primary help includes the product workflow and hides advanced wallet commands', async () => {
+test('help includes the complete command surface', async () => {
   const { logs, output } = captureOutput()
   assert.equal(await main(['help'], { output }), 0)
   assert.match(logs[0], /setup/)
   assert.match(logs[0], /run --budget/)
   assert.doesNotMatch(logs[0], /^\s+(create|list|unlock|address|fund)\b/m)
+})
+
+test('removed persistent wallet commands are rejected', async () => {
+  for (const args of [
+    ['create', '--budget', '1'],
+    ['list'],
+    ['fund', 'rationa31f', '--amount', '1'],
+    ['unlock', 'rationa31f'],
+    ['address', 'rationa31f', '--network', 'sepolia'],
+    ['help', '--advanced']
+  ]) {
+    const { errors, output } = captureOutput()
+    assert.equal(await main(args, { output }), 1)
+    assert.equal(errors[0], `Unknown command: ${args.join(' ')}`)
+  }
 })

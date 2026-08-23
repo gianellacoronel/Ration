@@ -67,6 +67,6 @@ export async function setupCommand (options, output, { insecure = false } = {}) 
   output.log('  Status    locked')
   output.log('  Gas       paid in USD₮')
   output.log('')
-  output.log('Fund this address with test USD₮ before creating a sandbox.')
+  output.log('Fund this address with test USD₮ before running a session.')
   return 0
 }

@@ -101,23 +101,6 @@ The lifecycle and ownership boundary are implemented, but the launched command i
 
 The intended integration is the official WDK MCP Toolkit configured only from the in-memory sandbox material. It must not connect to the WDK CLI daemon or expose the treasury. Its `close()` lifecycle will be joined to the existing sweep-and-dispose `finally` boundary once the documented toolkit beta is available from the package registry.
 
-## Advanced Debug Wallets
-
-Persistent sandbox commands remain available only as an advanced compatibility/debug flow:
-
-```bash
-ration help --advanced
-ration create --budget 5
-ration list [--balances]
-ration fund rationa31f --amount 2
-ration unlock rationa31f
-ration address rationa31f --network sepolia
-```
-
-`ration create` still delegates to `wdk wallet create`, including its passphrase and mnemonic flow. These named wallets are not used by `ration run` and do not define the product architecture.
-
-All advanced treasury funding paths also quote and display budget, network fee, and total before broadcast, and reject insufficient treasury balances early.
-
 ## Security Model
 
 - The treasury remains in official WDK CLI encrypted storage.

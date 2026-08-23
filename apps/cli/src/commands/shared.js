@@ -12,15 +12,8 @@ import { inspectPaymasterTokenConfig } from '../paymaster.js'
 import {
   runWdkGetNetworkConfig,
   runWdkWalletList,
-  runWdkWalletLock,
-  runWdkWalletLockAll
+  runWdkWalletLock
 } from '../wdk.js'
-
-export function parseSingleValueFlag (args, command, flag) {
-  if (args.length !== 3 || args[0] !== command || args[1] !== flag ||
-    !args[2] || args[2].startsWith('--')) return null
-  return args[2]
-}
 
 export function unavailableMessage (output) {
   output.error('Ration could not find or start the official WDK CLI.')
@@ -76,29 +69,12 @@ export async function lockWallets (names, options, output) {
   return success
 }
 
-export async function lockAllWallets (options, output, fallbackName, phase = 'cleanup') {
-  try {
-    await (options.runWdkWalletLockAll ?? runWdkWalletLockAll)()
-    return { allLocked: true, sandboxLocked: true }
-  } catch (error) {
-    output.error(`Security ${phase} failed: WDK could not lock all wallets.`)
-    if (!fallbackName) return { allLocked: false, sandboxLocked: false }
-
-    try {
-      const sandboxLocked = await lockWallets(new Set([fallbackName]), options, output)
-      return { allLocked: false, sandboxLocked }
-    } catch {
-      return { allLocked: false, sandboxLocked: false }
-    }
-  }
-}
-
-export async function loadWallets (options, output, failurePrefix = 'Could not inspect wallets.') {
+export async function loadWallets (options, output) {
   try {
     return await (options.runWdkWalletList ?? runWdkWalletList)()
   } catch (error) {
     if (error instanceof WdkCliUnavailableError) unavailableMessage(output)
-    else if (error instanceof WalletListingError) output.error(`${failurePrefix} ${error.message}`)
+    else if (error instanceof WalletListingError) output.error(`Could not inspect wallets. ${error.message}`)
     else throw error
     return null
   }

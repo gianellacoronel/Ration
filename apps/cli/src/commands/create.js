@@ -29,6 +29,7 @@ import {
   parseSingleValueFlag,
   printWalletError,
   requirePaymasterTokenMode,
+  throwIfInterrupted,
   transferFailureMessage
 } from './shared.js'
 
@@ -58,7 +59,7 @@ export async function createCommand (args, options, output) {
   const getAddress = options.runWdkGetAddress ?? runWdkGetAddress
   const getBalance = options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance
   const transfer = options.runWdkTransfer ?? runWdkTransfer
-  const confirm = options.confirmTransfer ?? confirmTransfer
+  const confirm = options.confirmTransfer ?? (() => confirmTransfer({ signal: options.signal }))
   const generator = options.createWalletName ?? createWalletName
   const name = createUniqueWalletName(wallets, generator)
   const locks = new Set([TREASURY_NAME])
@@ -113,6 +114,7 @@ export async function createCommand (args, options, output) {
       } else if (await confirm() !== true) {
         cancelled = true
       } else {
+        throwIfInterrupted(options.signal)
         result = await transfer({ ...transferInput, dryRun: false })
       }
     }

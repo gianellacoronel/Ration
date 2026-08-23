@@ -21,6 +21,7 @@ import {
   operationExitCode,
   printWalletError,
   requirePaymasterTokenMode,
+  throwIfInterrupted,
   transferFailureMessage
 } from './shared.js'
 
@@ -56,7 +57,7 @@ export async function fundCommand (args, options, output) {
   const getAddress = options.runWdkGetAddress ?? runWdkGetAddress
   const getBalance = options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance
   const transfer = options.runWdkTransfer ?? runWdkTransfer
-  const confirm = options.confirmTransfer ?? confirmTransfer
+  const confirm = options.confirmTransfer ?? (() => confirmTransfer({ signal: options.signal }))
   const locks = new Set([TREASURY_NAME, name])
   let exitCode = 0
   let result
@@ -97,7 +98,10 @@ export async function fundCommand (args, options, output) {
         output.error("Add USD₮ to the treasury address shown by 'ration setup', then try again.")
         exitCode = 1
       } else if (await confirm() !== true) cancelled = true
-      else result = await transfer({ ...input, dryRun: false })
+      else {
+        throwIfInterrupted(options.signal)
+        result = await transfer({ ...input, dryRun: false })
+      }
     }
   } catch (error) {
     exitCode = operationExitCode(error)

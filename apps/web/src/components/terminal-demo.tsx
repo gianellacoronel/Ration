@@ -39,8 +39,7 @@ const stateLabels: Record<TerminalState, string> = {
 
 function VariableCommand({ text }: { text: string }) {
   const variables = [
-    terminalDemo.sandbox,
-    terminalDemo.ttl,
+    terminalDemo.budget,
     terminalDemo.process,
     ...Object.values(commandVariables),
   ];
@@ -87,11 +86,11 @@ function RunOutput({ state }: { state: TerminalState }) {
     <div className="space-y-4 text-ration-cream/60">
       {reached("checking") && (
         <div>
-          <p>Checking sandbox...</p>
+          <p>Creating in-memory sandbox...</p>
           {reached("locking") && (
             <div className="mt-1">
-              <Check>sandbox found</Check>
-              <Check>balance available</Check>
+              <Check>ephemeral address ready</Check>
+              <Check>no seed persisted</Check>
             </div>
           )}
         </div>
@@ -99,10 +98,11 @@ function RunOutput({ state }: { state: TerminalState }) {
 
       {reached("locking") && (
         <div>
-          <p>Locking wallets...</p>
+          <p>Unlocking treasury and quoting...</p>
           {reached("unlocking") && (
             <div className="mt-1">
-              <Check>wallets locked</Check>
+              <Check>budget {terminalDemo.balance}</Check>
+              <Check>total {terminalDemo.total}</Check>
             </div>
           )}
         </div>
@@ -110,10 +110,11 @@ function RunOutput({ state }: { state: TerminalState }) {
 
       {reached("unlocking") && (
         <div>
-          <p>Unlocking sandbox...</p>
+          <p>Funding sandbox...</p>
           {reached("running") && (
             <div className="mt-1">
-              <Check>sandbox unlocked</Check>
+              <Check>treasury locked</Check>
+              <Check>budget confirmed</Check>
             </div>
           )}
         </div>
@@ -142,7 +143,7 @@ function RunOutput({ state }: { state: TerminalState }) {
           <dl className="grid grid-cols-[6.5rem_auto]">
             <dt>Spent</dt>
             <dd className="text-ration-cream">{terminalDemo.spent}</dd>
-            <dt>Remaining</dt>
+            <dt>Returned</dt>
             <dd className="text-ration-orange">{terminalDemo.remaining}</dd>
             <dt>Sandbox</dt>
             <dd className="text-ration-cream">{terminalDemo.status}</dd>
@@ -156,34 +157,30 @@ function RunOutput({ state }: { state: TerminalState }) {
 function CommandOutput({ command, state }: { command: CommandName; state: TerminalState }) {
   if (state === "typing" || state === "idle") return null;
 
-  if (command === "list") {
+  if (command === "setup") {
     if (state !== "completed") return null;
 
     return (
       <div className="mt-5 text-ration-cream/60">
-        <p className="mb-2 text-ration-cream">Sandboxes</p>
+        <p className="mb-2 text-ration-cream">Persistent treasury ready</p>
         <dl className="grid grid-cols-[6.5rem_auto]">
-          <dt>{terminalDemo.sandbox}</dt>
-          <dd>
-            <span className="text-ration-orange">{terminalDemo.balance}</span>
-            <span className="ml-3 text-ration-cream/40">{terminalDemo.status}</span>
-          </dd>
+          <dt>Owner</dt><dd>human</dd>
+          <dt>Storage</dt><dd className="text-ration-orange">WDK CLI</dd>
+          <dt>Agent</dt><dd>no access</dd>
         </dl>
       </div>
     );
   }
 
-  if (command === "balance") {
+  if (command === "debug") {
     if (state !== "completed") return null;
 
     return (
       <dl className="mt-5 grid grid-cols-[6.5rem_auto] text-ration-cream/60">
-        <dt>Sandbox</dt>
-        <dd className="text-ration-cream">{terminalDemo.sandbox}</dd>
-        <dt>Balance</dt>
-        <dd className="text-ration-orange">{terminalDemo.balance}</dd>
-        <dt>Status</dt>
-        <dd className="text-ration-cream">{terminalDemo.status}</dd>
+        <dt>Flow</dt>
+        <dd className="text-ration-cream">persistent debug wallet</dd>
+        <dt>Primary</dt>
+        <dd className="text-ration-orange">no</dd>
       </dl>
     );
   }

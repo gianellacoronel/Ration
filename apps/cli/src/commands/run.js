@@ -17,6 +17,7 @@ import {
   operationExitCode,
   printWalletError,
   requirePaymasterTokenMode,
+  throwIfInterrupted,
   transferFailureMessage
 } from './shared.js'
 
@@ -51,7 +52,7 @@ export async function runCommand (args, options, output) {
   const getAddress = options.runWdkGetAddress ?? runWdkGetAddress
   const getTreasuryBalance = options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance
   const transfer = options.runWdkTransfer ?? runWdkTransfer
-  const confirm = options.confirmTransfer ?? confirmTransfer
+  const confirm = options.confirmTransfer ?? (() => confirmTransfer({ signal: options.signal }))
   const execute = options.runRequestedCommand ?? runRequestedCommand
   let sandbox
   let treasuryAddress
@@ -61,6 +62,7 @@ export async function runCommand (args, options, output) {
   let commandAttempted = false
   let exitCode = 0
   let treasuryOpen = false
+  let fundingSubmitted = false
 
   try {
     sandbox = await createSandbox(paymaster.walletConfig)
@@ -103,12 +105,15 @@ export async function runCommand (args, options, output) {
       } else if (await confirm() !== true) {
         output.log('Session cancelled. Nothing was broadcast.')
       } else {
+        throwIfInterrupted(options.signal)
+        fundingSubmitted = true
         await transfer({ ...transferInput, dryRun: false })
         if (!(await lockWallets(new Set([TREASURY_NAME]), options, output))) {
           exitCode = 1
         } else {
           treasuryOpen = false
-          initialBalance = await awaitFunding(sandbox, input.budget)
+          initialBalance = await awaitFunding(sandbox, input.budget, { signal: options.signal })
+          throwIfInterrupted(options.signal)
           output.log('Ration')
           output.log('')
           output.log(`Sandbox   ${sandbox.address}`)
@@ -136,6 +141,15 @@ export async function runCommand (args, options, output) {
   } finally {
     if (treasuryOpen && !(await lockWallets(new Set([TREASURY_NAME]), options, output))) exitCode = 1
 
+    if (sandbox && fundingSubmitted && initialBalance === undefined) {
+      try {
+        initialBalance = await awaitFunding(sandbox, input.budget)
+      } catch {
+        output.error('Security cleanup failed: submitted sandbox funding could not be located for sweeping.')
+        exitCode = 1
+      }
+    }
+
     if (sandbox && initialBalance !== undefined) {
       try {
         finalBalance = await sandbox.getBalance()
@@ -145,6 +159,9 @@ export async function runCommand (args, options, output) {
           if (swept === 0n) {
             output.error(`The remaining ${formatUsdtBaseUnits(finalBalance)} could not cover its sweep fee.`)
             exitCode = 1
+          }
+          if ((sweep.remaining ?? 0n) > 0n) {
+            output.error(`Sandbox sweep left ${formatUsdtBaseUnits(sweep.remaining)} below the economical sweep amount.`)
           }
         }
       } catch {

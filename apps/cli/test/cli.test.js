@@ -222,7 +222,7 @@ test('empty-passphrase unlock answers its single passphrase prompt', async () =>
   assert.deepEqual(writes, ['\n'])
 })
 
-test("setup --insecure creates and unlocks the treasury without a passphrase", async () => {
+test('setup --insecure creates and unlocks the treasury without a passphrase', async () => {
   const { logs, errors, output } = captureOutput()
   const events = []
   let listCalls = 0
@@ -567,7 +567,6 @@ test('create leaves a declined sandbox empty and locks both wallets', async () =
     runWdkGetUsdtBalance: async () => ({ balance: '10000000', formatted: '10 USDT' }),
     runWdkWalletCreate: async () => {},
     runWdkWalletUnlock: async () => {},
-    runWdkGetUsdtBalance: async () => ({ balance: '10000000', formatted: '10 USDT' }),
     runWdkGetAddress: async () => ({ address: '0xsandbox' }),
     runWdkTransfer: async (input) => {
       if (!input.dryRun) broadcasts++
@@ -970,6 +969,127 @@ test('run fails before funding when the treasury cannot cover budget plus fee', 
   ])
 })
 
+test('submitted funding is located and swept when treasury locking fails', async () => {
+  const { errors, output } = captureOutput()
+  const events = []
+  const sandbox = {
+    address: '0xephemeral',
+    getBalance: async () => {
+      events.push('balance')
+      return 1000000n
+    },
+    sweep: async () => {
+      events.push('sweep')
+      return { amount: 950000n, fee: 50000n, remaining: 0n }
+    },
+    dispose: () => events.push('dispose')
+  }
+  const exitCode = await main(['run', '--budget', '1', '--', 'agent'], {
+    output,
+    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: false }],
+    createEphemeralSandbox: async () => sandbox,
+    runWdkWalletUnlock: async () => {},
+    runWdkGetAddress: async () => ({ address: '0xtreasury' }),
+    runWdkGetUsdtBalance: async () => ({ balance: '2000000', formatted: '2 USDT' }),
+    runWdkTransfer: async (input) => {
+      if (!input.dryRun) events.push('fund')
+      return input.dryRun ? preview('0xephemeral') : { txHash: '0xfund' }
+    },
+    confirmTransfer: async () => true,
+    runWdkWalletLock: async () => {
+      events.push('lock')
+      throw new WalletLockError(1, null, 'daemon unavailable')
+    },
+    waitForSandboxFunding: async () => {
+      events.push('funding-confirmed')
+      return 1000000n
+    },
+    runRequestedCommand: async () => events.push('command')
+  })
+
+  assert.equal(exitCode, 1)
+  assert.deepEqual(events, [
+    'fund', 'lock', 'lock', 'funding-confirmed', 'balance', 'sweep', 'dispose'
+  ])
+  assert.equal(errors.some((line) => line.includes('could not be locked')), true)
+})
+
+test('an ambiguous funding broadcast failure still reconciles and sweeps', async () => {
+  const { output } = captureOutput()
+  const events = []
+  const sandbox = {
+    address: '0xephemeral',
+    getBalance: async () => 1000000n,
+    sweep: async () => {
+      events.push('sweep')
+      return { amount: 950000n, fee: 50000n, remaining: 0n }
+    },
+    dispose: () => events.push('dispose')
+  }
+  const exitCode = await main(['run', '--budget', '1', '--', 'agent'], {
+    output,
+    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: false }],
+    createEphemeralSandbox: async () => sandbox,
+    runWdkWalletUnlock: async () => {},
+    runWdkGetAddress: async () => ({ address: '0xtreasury' }),
+    runWdkGetUsdtBalance: async () => ({ balance: '2000000', formatted: '2 USDT' }),
+    runWdkTransfer: async (input) => {
+      if (input.dryRun) return preview('0xephemeral')
+      throw new WalletTransferError('broadcast', 1, null, 'ambiguous provider failure')
+    },
+    confirmTransfer: async () => true,
+    runWdkWalletLock: async () => {},
+    waitForSandboxFunding: async () => {
+      events.push('funding-confirmed')
+      return 1000000n
+    }
+  })
+
+  assert.equal(exitCode, 1)
+  assert.deepEqual(events, ['funding-confirmed', 'sweep', 'dispose'])
+})
+
+test('an interrupt during funding confirmation prevents child launch but still sweeps', async () => {
+  const { output } = captureOutput()
+  const events = []
+  let waits = 0
+  const sandbox = {
+    address: '0xephemeral',
+    getBalance: async () => 1000000n,
+    sweep: async () => {
+      events.push('sweep')
+      return { amount: 950000n, fee: 50000n, remaining: 0n }
+    },
+    dispose: () => events.push('dispose')
+  }
+  const exitCode = await main(['run', '--budget', '1', '--', 'agent'], {
+    output,
+    runWdkWalletList: async () => [{ name: 'rationtreasury', unlocked: false }],
+    createEphemeralSandbox: async () => sandbox,
+    runWdkWalletUnlock: async () => {},
+    runWdkGetAddress: async () => ({ address: '0xtreasury' }),
+    runWdkGetUsdtBalance: async () => ({ balance: '2000000', formatted: '2 USDT' }),
+    runWdkTransfer: async (input) => input.dryRun ? preview('0xephemeral') : { txHash: '0xfund' },
+    confirmTransfer: async () => true,
+    runWdkWalletLock: async () => {},
+    waitForSandboxFunding: async () => {
+      waits++
+      if (waits === 1) {
+        process.emit('SIGINT')
+        const error = new Error('interrupted')
+        error.signal = 'SIGINT'
+        throw error
+      }
+      return 1000000n
+    },
+    runRequestedCommand: async () => events.push('command')
+  })
+
+  assert.equal(exitCode, 130)
+  assert.equal(waits, 2)
+  assert.deepEqual(events, ['sweep', 'dispose'])
+})
+
 test('run rejects persistent sandbox syntax and invalid budgets', async () => {
   for (const args of [
     ['run', 'rationa31f', '--ttl', '10', '--', 'claude'],
@@ -1060,6 +1180,33 @@ test('normal create syntax does not accept source-wallet selection', async () =>
   const exitCode = await main(['create', '--from', 'personal', '--budget', '5'], { output })
   assert.equal(exitCode, 1)
   assert.deepEqual(errors, ['Usage: ration create --budget <amount>'])
+})
+
+test('an interrupt after advanced funding confirmation prevents broadcast', async () => {
+  const { output } = captureOutput()
+  let broadcasts = 0
+  const exitCode = await main(['fund', 'rationa31f', '--amount', '1'], {
+    output,
+    runWdkWalletList: async () => [
+      { name: 'rationtreasury', unlocked: false },
+      { name: 'rationa31f', unlocked: false }
+    ],
+    runWdkWalletUnlock: async () => {},
+    runWdkGetUsdtBalance: async () => ({ balance: '2000000', formatted: '2 USDT' }),
+    runWdkGetAddress: async () => ({ address: '0xsandbox' }),
+    runWdkTransfer: async (input) => {
+      if (!input.dryRun) broadcasts++
+      return preview('0xsandbox')
+    },
+    confirmTransfer: async () => {
+      process.emit('SIGINT')
+      return true
+    },
+    runWdkWalletLock: async () => {}
+  })
+
+  assert.equal(exitCode, 130)
+  assert.equal(broadcasts, 0)
 })
 
 test('advanced unlock refuses to leave the treasury exposed', async () => {

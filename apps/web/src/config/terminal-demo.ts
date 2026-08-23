@@ -1,9 +1,11 @@
 export const terminalDemo = {
-  sandbox: "sandbox_01",
-  ttl: "10m",
+  sandbox: "0x7b3c...91fa",
+  budget: "1",
   process: "claude",
-  balance: "5.00 USDT",
-  spent: "1.24 USDT",
-  remaining: "3.76 USDT",
-  status: "locked",
+  balance: "1.00 USDT",
+  fee: "0.05 USDT",
+  total: "1.05 USDT",
+  spent: "0.00 USDT",
+  remaining: "0.95 USDT",
+  status: "disposed",
 } as const;

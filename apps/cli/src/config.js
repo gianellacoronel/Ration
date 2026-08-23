@@ -22,5 +22,4 @@ export const NETWORK = 'smart-account-sepolia'
 export const TOKEN = 'USDT'
 export const SESSION_TTL_MINUTES = 5
 export const DEBUG_SESSION_TTL_MINUTES = 60
-export const MAX_SESSION_TTL_MINUTES = Math.floor(0x7fffffff / 60000)
 export const SETUP_REQUIRED = "Ration is not set up yet. Run 'ration setup' first."

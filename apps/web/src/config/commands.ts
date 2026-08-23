@@ -1,83 +1,73 @@
 import { terminalDemo } from "@/config/terminal-demo";
 
 export const commandVariables = {
-  sandbox: "${SANDBOX}",
-  ttl: "${TTL}",
+  budget: "${BUDGET}",
   process: "${PROCESS}",
 } as const;
 
 export const commands = {
-  list: "ration list",
-
-  balance: (sandbox: string) => `ration balance ${sandbox}`,
-
-  run: (sandbox: string, ttl: string, process: string) =>
-    `ration run ${sandbox} --ttl ${ttl} -- ${process}`,
+  setup: "ration setup",
+  run: (budget: string, process: string) =>
+    `ration run --budget ${budget} -- ${process}`,
+  debug: (budget: string) => `ration create --budget ${budget}`,
 } as const;
 
-export type CommandName = "list" | "balance" | "run";
+export type CommandName = "setup" | "run" | "debug";
 
 export const terminalCommandOptions = [
   {
-    name: "list",
-    display: commands.list,
-    value: commands.list,
-  },
-  {
-    name: "balance",
-    display: commands.balance(commandVariables.sandbox),
-    value: commands.balance(terminalDemo.sandbox),
+    name: "setup",
+    display: commands.setup,
+    value: commands.setup,
   },
   {
     name: "run",
-    display: commands.run(
-      commandVariables.sandbox,
-      commandVariables.ttl,
-      commandVariables.process,
-    ),
-    value: commands.run(
-      terminalDemo.sandbox,
-      terminalDemo.ttl,
-      terminalDemo.process,
-    ),
+    display: commands.run(commandVariables.budget, commandVariables.process),
+    value: commands.run(terminalDemo.budget, terminalDemo.process),
+  },
+  {
+    name: "debug",
+    display: commands.debug(commandVariables.budget),
+    value: commands.debug(terminalDemo.budget),
   },
 ] satisfies Array<{ name: CommandName; display: string; value: string }>;
 
 export const cliCommands = [
   {
-    id: "list",
-    label: "List",
-    command: commands.list,
-    output: `SANDBOX       STATUS      BALANCE
-${terminalDemo.sandbox.padEnd(14)}${terminalDemo.status.padEnd(12)}${terminalDemo.balance}`,
-  },
-  {
-    id: "balance",
-    label: "Balance",
-    command: commands.balance(commandVariables.sandbox),
-    output: `Sandbox: ${terminalDemo.sandbox}
+    id: "setup",
+    label: "Setup",
+    command: commands.setup,
+    output: `Persistent treasury ready
 
-Balance: ${terminalDemo.balance}
-Status:  ${terminalDemo.status}`,
+Owner:  human
+Store:  encrypted WDK CLI wallet
+Agent:  no access`,
   },
   {
     id: "run",
     label: "Run",
-    command: commands.run(
-      commandVariables.sandbox,
-      commandVariables.ttl,
-      commandVariables.process,
-    ),
-    output: `Sandbox unlocked
+    command: commands.run(commandVariables.budget, commandVariables.process),
+    output: `Budget       ${terminalDemo.balance}
+Network fee  ${terminalDemo.fee}
+Total        ${terminalDemo.total}
+
+Ephemeral sandbox created
+Wallet access pending restricted MCP
 Process started
 
 ...
 
-Process exited
+Remainder swept
+Sandbox disposed`,
+  },
+  {
+    id: "debug",
+    label: "Debug",
+    command: commands.debug(commandVariables.budget),
+    output: `Advanced flow only
 
-Sandbox locked
-Spent: ${terminalDemo.spent}
-Remaining: ${terminalDemo.remaining}`,
+Creates a persistent WDK CLI wallet.
+Not used by ration run.`,
   },
 ] as const;
 

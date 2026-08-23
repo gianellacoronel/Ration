@@ -45,9 +45,11 @@ async function dispatchMain (args, options = {}) {
 
 export async function main (args, options = {}) {
   let interrupted
+  const abortController = new AbortController()
   const onSignal = (signal) => {
     if (interrupted) return
     interrupted = signal
+    abortController.abort(signal)
     const interruptedChildren = [...activeChildren]
     for (const child of interruptedChildren) {
       try {
@@ -71,7 +73,7 @@ export async function main (args, options = {}) {
 
   let exitCode
   try {
-    exitCode = await dispatchMain(args, options)
+    exitCode = await dispatchMain(args, { ...options, signal: abortController.signal })
   } finally {
     process.off('SIGINT', onSigint)
     process.off('SIGTERM', onSigterm)

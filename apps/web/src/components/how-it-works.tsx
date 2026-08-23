@@ -1,10 +1,10 @@
-import { Coins, Lock, Terminal, Unlock } from "lucide-react";
+import { Coins, Eraser, Sparkles, Terminal } from "lucide-react";
 
 const steps = [
-  { number: "01", title: "Fund", description: "Move an explicit amount into a sandbox.", Icon: Coins },
-  { number: "02", title: "Unlock", description: "Open only that sandbox for the session.", Icon: Unlock },
-  { number: "03", title: "Run", description: "The process can use only allocated funds.", Icon: Terminal },
-  { number: "04", title: "Lock", description: "Close access when the process exits.", Icon: Lock },
+  { number: "01", title: "Create", description: "Derive one in-memory wallet for this run.", Icon: Sparkles },
+  { number: "02", title: "Fund", description: "Move the exact approved budget from treasury.", Icon: Coins },
+  { number: "03", title: "Run", description: "Restricted MCP wallet access is the next integration.", Icon: Terminal },
+  { number: "04", title: "Erase", description: "Sweep the remainder, then dispose every key.", Icon: Eraser },
 ];
 
 export function HowItWorks() {
@@ -16,7 +16,7 @@ export function HowItWorks() {
             <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">Operation manual</p>
             <h2 id="how-title" className="display-type max-w-[11ch] text-[clamp(3rem,7vw,6.5rem)] leading-[0.86]">Money in. Process out.</h2>
           </div>
-          <p className="max-w-xs border-l pl-5 text-sm leading-6 text-muted">Four explicit actions. No ambient wallet access. No hidden custody.</p>
+          <p className="max-w-xs border-l pl-5 text-sm leading-6 text-muted">One treasury unlock. No sandbox passphrase. No persistent agent wallet.</p>
         </div>
 
         <ol className="relative mt-16 grid gap-0 border-t desktop:grid-cols-4">

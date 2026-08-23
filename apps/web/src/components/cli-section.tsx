@@ -39,7 +39,7 @@ function HighlightedCommand({ command }: { command: string }) {
 }
 
 export function CliSection() {
-  const [activeId, setActiveId] = useState<CliCommandId>("list");
+  const [activeId, setActiveId] = useState<CliCommandId>("run");
   const [copyFeedback, setCopyFeedback] = useState<"copied" | "failed" | null>(null);
   const feedbackTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);

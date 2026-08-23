@@ -31,6 +31,13 @@ export function operationExitCode (error) {
   return error?.signal === 'SIGINT' ? 130 : 1
 }
 
+export function throwIfInterrupted (signal) {
+  if (!signal?.aborted) return
+  const error = new Error('Ration was interrupted.')
+  error.signal = signal.reason
+  throw error
+}
+
 export function printWalletError (error, output, context) {
   if (error instanceof WdkCliUnavailableError) {
     unavailableMessage(output)

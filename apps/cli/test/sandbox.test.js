@@ -54,15 +54,17 @@ test('ephemeral sandbox keeps mutable seed bytes in memory and zeroes them on di
 test('ephemeral sandbox reserves the quoted token fee, sweeps, and waits for confirmation', async () => {
   const quotes = []
   let transfer
+  let balance = 1000000n
   const account = {
     getAddress: async () => '0xephemeral',
-    getTokenBalance: async () => 1000000n,
+    getTokenBalance: async () => balance,
     quoteTransfer: async (input) => {
       quotes.push(input)
       return { fee: 50000n }
     },
     transfer: async (input) => {
       transfer = input
+      balance = 0n
       return { hash: '0xhash', fee: 50000n }
     },
     waitForTransaction: async (hash, options) => {
@@ -106,4 +108,15 @@ test('funding wait polls until the exact budget is visible', async () => {
 
   assert.equal(balance, 1000000n)
   assert.equal(sleeps, 2)
+})
+
+test('funding wait stops before another balance read when aborted', async () => {
+  const controller = new AbortController()
+  controller.abort('SIGTERM')
+  let reads = 0
+
+  await assert.rejects(waitForSandboxFunding({
+    getBalance: async () => { reads++ }
+  }, 1000000n, { signal: controller.signal }), (error) => error.signal === 'SIGTERM')
+  assert.equal(reads, 0)
 })

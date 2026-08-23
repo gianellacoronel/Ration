@@ -42,13 +42,24 @@ export function inspectPaymasterTokenConfig (config) {
   if (config.chainId !== Number(SEPOLIA_CHAIN_ID) || config.isSponsored === true ||
     config.useNativeCoins === true || bundler === null || bundler !== paymaster ||
     paymasterAddress !== PAYMASTER_ADDRESS || tokenAddress !== USDT_ADDRESS ||
-    transferMaxFee !== TRANSFER_MAX_FEE) {
+    transferMaxFee !== TRANSFER_MAX_FEE || config.safeModulesVersion !== '0.3.0' ||
+    (typeof config.provider !== 'string' && !Array.isArray(config.provider))) {
     return { ready: false }
   }
 
   return {
     ready: true,
-    transferMaxFee
+    transferMaxFee,
+    walletConfig: {
+      chainId: Number(SEPOLIA_CHAIN_ID),
+      provider: config.provider,
+      bundlerUrl: bundler,
+      paymasterUrl: paymaster,
+      paymasterAddress: config.paymasterAddress,
+      safeModulesVersion: config.safeModulesVersion,
+      paymasterToken: { address: config.paymasterToken.address },
+      transferMaxFee
+    }
   }
 }
 

@@ -1,13 +1,25 @@
 # Ration
 
-Ration creates disposable, budgeted financial sandboxes for AI agents using the official Tether Wallet Development Kit (WDK) CLI.
+Ration gives an AI command a disposable, budgeted financial sandbox while keeping the human treasury persistent and separate.
 
-Ration establishes two product concepts:
+```text
+Persistent treasury (WDK CLI)
+        ↓ exact budget
+Ephemeral in-memory WDK ERC-4337 sandbox
+        ↓
+Restricted WDK MCP (next integration)
+        ↓
+Agent
+        ↓ sweep remainder
+        ↓ dispose keys
+```
 
-- **Treasury:** the user's persistent wallet. It only funds sandboxes and must never be exposed to an agent.
-- **Sandbox:** a temporary Ration wallet with a bounded test USD₮ balance that can be exposed to one command for a finite session.
+## Wallet Model
 
-WDK remains the wallet source of truth. Ration does not implement wallet storage and never captures, parses, logs, or persists a seed phrase or passphrase.
+- **Treasury:** an official WDK CLI wallet named `rationtreasury`. It is persistent, encrypted, human-owned, and unlocked only for a specific treasury operation.
+- **Sandbox:** an official `@tetherto/wdk-wallet-evm-erc-4337` wallet created inside the `ration run` process. It is not registered with the WDK CLI, has no passphrase, and is never written to the WDK wallet catalog.
+
+Ration generates 64 bytes of cryptographically random sandbox seed material in memory. It does not create or display a mnemonic. At session cleanup, Ration calls the documented WDK account and wallet `dispose()` methods, zeroes its mutable seed buffer, and drops its references.
 
 ## Requirements
 
@@ -15,27 +27,28 @@ WDK remains the wallet source of truth. Ration does not implement wallet storage
 - npm
 - WDK's public Candide Sepolia Paymaster Token configuration
 
-The repository includes an `.nvmrc` matching the Node.js version required by the installed WDK CLI.
+The repository includes an `.nvmrc` matching the Node.js version required by the WDK CLI.
 
 ### USD₮ Gas Payments
 
-Ration does not sponsor user transactions. It uses WDK's Paymaster Token mode, where Candide supplies native gas and charges the wallet in test USD₮. Configure these fields for WDK's `smart-account-sepolia` network before running `ration setup`:
+Ration uses WDK Paymaster Token mode. Candide supplies native gas and charges the sending wallet in test USD₮. Configure the WDK CLI `smart-account-sepolia` network with:
 
 ```text
-chainId                11155111
-bundlerUrl             https://api.candide.dev/public/v3/11155111
-paymasterUrl           https://api.candide.dev/public/v3/11155111
-paymasterAddress       0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba
-paymasterToken.address 0xd077a400968890eacc75cdc901f0356c943e4fdb
-transferMaxFee         100000
-isSponsored            false (or omitted)
+chainId                 11155111
+provider                a working Sepolia JSON-RPC URL
+bundlerUrl              https://api.candide.dev/public/v3/11155111
+paymasterUrl            https://api.candide.dev/public/v3/11155111
+paymasterAddress        0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba
+safeModulesVersion      0.3.0
+paymasterToken.address  0xd077a400968890eacc75cdc901f0356c943e4fdb
+transferMaxFee          100000
+isSponsored             false (or omitted)
+useNativeCoins          false (or omitted)
 ```
 
-Candide's public endpoint serves both Bundler and Paymaster requests without an API key. It is rate-limited by source IP; private authenticated endpoints are intended for production or higher limits and are not required or bundled by Ration. Ration validates the current numeric Candide endpoint but does not rewrite WDK configuration.
+Ration reads this configuration through the official CLI's structured output, validates it, and passes only the documented SDK fields to the ephemeral wallet constructor. The same configuration derives compatible ERC-4337 smart accounts for treasury funding and sandbox operation.
 
-Balance reads remain WDK operations. WDK's ERC-4337 account calls its configured Sepolia RPC provider internally; Ration does not issue balance RPC calls itself. The public `https://sepolia.drpc.org` example currently rejects Sepolia requests on its free plan, while the pinned WDK CLI provider `https://sepolia.gateway.tenderly.co` supports the required read calls.
-
-Ration reads the network configuration through WDK's structured CLI output and fails before unlocking a wallet when it is not the documented Paymaster Token configuration. A quoted fee at or above WDK's configured `0.1 USD₮` safety limit is rejected before confirmation or broadcast.
+Candide's public endpoint requires no API key but is rate-limited by source IP. Sepolia USD₮ is test-only and has no value.
 
 ## Getting Started
 
@@ -46,125 +59,84 @@ npm link
 ration setup
 # Fund the displayed treasury address with test USD₮.
 
-ration create --budget 5
-ration run rationa31f --ttl 10 -- claude
-ration list
+ration run --budget 1 -- claude
 ```
 
-`ration setup` creates a persistent WDK wallet named `rationtreasury`. WDK owns the complete interactive security flow, including passphrase prompts, seed generation, encryption, display, and storage. Ration inherits the terminal directly and cannot read those secrets.
+`ration setup` creates or reuses the persistent WDK CLI treasury. WDK owns the interactive passphrase, encryption, backup, and storage flow. Ration never reads the treasury passphrase or seed.
 
-After WDK creates the treasury, Ration asks WDK to unlock it briefly, resolves its receiving address, and locks it. Running setup again detects and reuses the existing treasury instead of creating a duplicate.
+For throwaway development environments only, `ration setup --insecure` creates the treasury with an empty passphrase.
 
-Passphrases are the default. For throwaway environments, `ration setup --insecure` creates the treasury with an empty passphrase and no prompts; anyone with access to that machine can spend its funds.
-
-## Creating Sandboxes
+## Running A Session
 
 ```bash
-ration create --budget 5
+ration run --budget <amount> -- <command> [args...]
 ```
 
-Ration performs the following workflow:
+The normal session lifecycle is:
 
-1. Verifies that setup is complete.
-2. Briefly unlocks the treasury through WDK and verifies its test USD₮ balance.
-3. Creates a collision-checked sandbox with a short name such as `rationa31f`.
-4. Briefly unlocks the sandbox through WDK and resolves its receiving address.
-5. Runs WDK's structured transfer dry run.
-6. Displays the USD₮ gas quote, verifies it is below WDK's safety limit, then asks for explicit confirmation.
-7. Broadcasts only after an explicit `y` or `yes`.
-8. Locks both the sandbox and treasury before reporting success.
+1. Validate the WDK ERC-4337 Paymaster Token configuration.
+2. Create an in-memory ephemeral ERC-4337 sandbox and resolve its smart-account address.
+3. Unlock only the persistent treasury through the official WDK CLI.
+4. Ask the CLI for a structured funding dry run.
+5. Display the budget, estimated network fee, and total treasury requirement.
+6. Fail before confirmation or broadcast if the treasury balance cannot cover the total.
+7. Fund the ephemeral address after explicit confirmation and lock the treasury.
+8. Wait until the exact budget is visible in the SDK sandbox, then launch the command.
+9. On child exit or interruption, quote and sweep the spendable USD₮ remainder to the treasury.
+10. Wait for the sweep UserOperation to confirm, dispose the SDK account and manager, and zero Ration's seed buffer.
 
-Each sandbox is an independent WDK wallet, so WDK presents its official passphrase and seed backup flow during creation. Ration does not receive either secret.
-
-If confirmation is declined, the newly created sandbox remains empty and locked. Ration does not automatically delete wallets in this iteration.
-
-## Listing
-
-```bash
-ration list
-```
-
-Default output shows the treasury and sandboxes with their lock status. It never unlocks a wallet and never asks for a passphrase:
+The funding preview is shown as:
 
 ```text
-Treasury
-  Balance   —
-
-Sandboxes
-
-SANDBOX      STATUS
-rationa31f   locked
-rationc912   locked
-
-Locked wallets hide their balance and address. Run 'ration list --balances' to see them.
+Budget       1.00 USDT
+Network fee  0.05 USDT
+Total        1.05 USDT
 ```
 
-Balances require an unlocked WDK session, so they are explicit opt-in. `ration list --balances` invokes WDK's official unlock flow for locked Ration wallets, reads their balances, and locks every inspected Ration wallet before returning. It ignores unrelated WDK wallets.
+The treasury must cover `budget + funding fee`. The sandbox also pays its own outgoing and final sweep fees from its budget.
+
+## MCP Status
+
+The lifecycle and ownership boundary are implemented, but the launched command is not yet connected to wallet tools. Until the restricted MCP integration lands, the child cannot transact with the ephemeral wallet.
+
+The intended integration is the official WDK MCP Toolkit configured only from the in-memory sandbox material. It must not connect to the WDK CLI daemon or expose the treasury. Its `close()` lifecycle will be joined to the existing sweep-and-dispose `finally` boundary once the documented toolkit beta is available from the package registry.
+
+## Advanced Debug Wallets
+
+Persistent sandbox commands remain available only as an advanced compatibility/debug flow:
 
 ```bash
-ration list --balances
-```
-
-Use `ration list --verbose` to include receiving addresses (shown only for wallets that are already unlocked).
-
-## Running Commands
-
-```bash
-ration run <sandbox> --ttl <minutes> -- <command> [args...]
-```
-
-The sandbox must already exist and contain test USD₮. Ration locks every WDK wallet, unlocks only the selected sandbox using WDK's finite TTL, records its opening balance, and launches the command with the terminal attached directly. When the command exits or receives Ctrl+C, Ration attempts to read the closing balance and locks all WDK wallets before printing the session receipt.
-
-The sandbox's funded balance is the financial boundary. This command does not create, fund, sweep, delete, recycle, or apply a separate spending policy to the wallet.
-
-## Advanced Commands
-
-These commands are not needed for the normal setup, create, and list workflow:
-
-```bash
-ration fund <sandbox> --amount 2
-ration unlock <sandbox>
-ration address <wallet> --network sepolia
 ration help --advanced
+ration create --budget 5
+ration list [--balances]
+ration fund rationa31f --amount 2
+ration unlock rationa31f
+ration address rationa31f --network sepolia
 ```
 
-`fund` tops up an existing sandbox from `rationtreasury`. It uses the same dry-run, confirmation, and final locking behavior as sandbox creation. Source-wallet selection is intentionally not part of the Ration CLI.
+`ration create` still delegates to `wdk wallet create`, including its passphrase and mnemonic flow. These named wallets are not used by `ration run` and do not define the product architecture.
 
-The advanced `unlock` command accepts sandboxes only. Ration never offers a command that leaves the treasury unlocked.
+All advanced treasury funding paths also quote and display budget, network fee, and total before broadcast, and reject insufficient treasury balances early.
 
 ## Security Model
 
-- Wallet creation and unlocking use the official interactive WDK CLI with inherited terminal I/O.
-- Ration only parses documented structured JSON from wallet listing, address, balance, lock, dry-run, and transfer commands.
-- Ration validates Paymaster Token mode, the public Candide Sepolia endpoint, paymaster, test token, and fee cap before wallet operations that can spend funds.
-- Ration never requires or bundles a private Candide API key or sponsorship policy.
-- Wallet seeds, passphrases, private keys, and EOA addresses are never captured or stored by Ration.
-- The treasury and sandbox are explicitly locked after creation, cancellation, or failure.
-- Command sessions start by locking all WDK wallets and finish with the same all-wallet lock operation.
-- Interrupt signals stop active WDK children and allow Ration's lock cleanup to finish before exit.
-- A lock failure is reported as an error and prevents Ration from claiming successful completion.
-- Normal output uses only Ration concepts and receiving addresses.
+- The treasury remains in official WDK CLI encrypted storage.
+- Normal sessions never call `wdk wallet create` for a sandbox.
+- Sandbox seed bytes, accounts, and wallet managers exist only in the Ration process.
+- Sandbox secrets are never printed, passed in the child environment, or persisted by Ration.
+- Treasury funding uses the official CLI structured dry-run and transfer commands.
+- Sandbox reads, quotes, sweep transfer, confirmation wait, and disposal use documented ERC-4337 SDK APIs.
+- Funding is blocked when its quoted fee reaches the configured `0.1 USD₮` safety cap.
+- Cleanup runs after normal exit, launch failure, Ctrl+C, and termination signals.
+- A failed sweep or disposal makes the session fail rather than claiming successful cleanup.
 
-For the hackathon, Ration uses WDK's Sepolia smart-account implementation and Candide Paymaster Token mode. Each wallet's test USD₮ balance pays its own transaction fees; Ration does not subsidize user gas.
-
-## Scope
-
-This version does not implement MCP access, spending policies, x402, sweeping, disposal, or automatic wallet deletion.
+This project currently targets Sepolia and test USD₮. WDK packages are beta software; use test networks and test amounts.
 
 ## Local Development
 
-Run without linking:
-
 ```bash
 npm run ration -- setup
-npm run ration -- create --budget 5
-npm run ration -- run rationa31f --ttl 10 -- claude
-npm run ration -- list
-```
-
-Run tests:
-
-```bash
+npm run ration -- run --budget 1 -- claude
 npm test
 ```
 
@@ -174,13 +146,12 @@ Run the project-local official WDK CLI directly:
 npm run wdk -- --help
 ```
 
-WDK and WDK CLI are currently beta software. Use test networks and test amounts, and update to patched official releases as Tether publishes them.
-
 ## Official Sources
 
-- [WDK documentation](https://docs.wallet.tether.io/)
-- [WDK CLI repository](https://github.com/tetherto/wdk-cli)
-- [WDK core repository](https://github.com/tetherto/wdk)
+- [WDK documentation](https://docs.wdk.tether.io/)
+- [WDK CLI documentation](https://docs.wdk.tether.io/cli/)
+- [WDK ERC-4337 usage](https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm-erc-4337/usage/)
 - [WDK ERC-4337 configuration](https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm-erc-4337/configuration/)
-- [Candide public endpoints](https://docs.candide.dev/wallet/api/public-endpoints/)
-- [Candide supported gas tokens](https://docs.candide.dev/wallet/paymaster/tokens-supported/)
+- [WDK ERC-4337 API](https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm-erc-4337/api-reference/)
+- [WDK MCP Toolkit](https://docs.wdk.tether.io/ai/mcp-toolkit/)
+- [WDK MCP Toolkit repository](https://github.com/tetherto/wdk-mcp-toolkit)

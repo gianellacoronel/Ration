@@ -2,19 +2,17 @@ export const HELP = `Usage: ration <command> [options]
 
 Commands:
   setup                 Create or recover the Ration treasury
-  create --budget <n>   Create and fund a disposable sandbox
-  run <sandbox> ...     Run a command in a funded sandbox session
-  list [--balances]     List the treasury and sandboxes
+  run --budget <n> ...  Run a command in an ephemeral sandbox
   help                  Show this help
 
 Getting started:
   ration setup
-  ration create --budget 5
-  ration run rationa31f --ttl 10 -- claude
-  ration list`
+  ration run --budget 1 -- claude`
 
 export const ADVANCED_HELP = `Advanced commands:
   setup --insecure                        Create the treasury without a passphrase
+  create --budget <n>                     Create a persistent debug sandbox
+  list [--balances]                       List persistent WDK wallets
   fund <sandbox> --amount <n>             Top up a sandbox from the treasury
   unlock <sandbox>                        Open a temporary sandbox session
   address <wallet> --network <network>    Resolve a wallet address`

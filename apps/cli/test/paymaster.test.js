@@ -10,6 +10,7 @@ const paymasterTokenConfig = {
   bundlerUrl: publicEndpoint,
   paymasterUrl: publicEndpoint,
   paymasterAddress: '0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba',
+  safeModulesVersion: '0.3.0',
   paymasterToken: {
     address: '0xd077a400968890eacc75cdc901f0356c943e4fdb'
   },
@@ -17,12 +18,21 @@ const paymasterTokenConfig = {
 }
 
 test('accepts the official public Candide Sepolia Paymaster Token configuration', () => {
-  assert.deepEqual(inspectPaymasterTokenConfig({
+  const result = inspectPaymasterTokenConfig({
     ...paymasterTokenConfig,
     bundlerUrl: `${publicEndpoint}/`,
     paymasterUrl: publicEndpoint
-  }), {
-    ready: true,
+  })
+  assert.equal(result.ready, true)
+  assert.equal(result.transferMaxFee, 100000n)
+  assert.deepEqual(result.walletConfig, {
+    chainId: 11155111,
+    provider: 'https://sepolia.gateway.tenderly.co',
+    bundlerUrl: publicEndpoint,
+    paymasterUrl: publicEndpoint,
+    paymasterAddress: '0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba',
+    safeModulesVersion: '0.3.0',
+    paymasterToken: { address: '0xd077a400968890eacc75cdc901f0356c943e4fdb' },
     transferMaxFee: 100000n
   })
 })

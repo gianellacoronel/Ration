@@ -71,46 +71,49 @@ export async function createCommand (args, options, output) {
     const treasury = wallets.find((wallet) => wallet.name === TREASURY_NAME)
     if (!treasury.unlocked) await unlock(TREASURY_NAME)
 
-    const treasuryBalance = await getBalance(TREASURY_NAME, NETWORK)
-    if (balanceBaseUnits(treasuryBalance) < budgetUnits) {
-      output.error(`The treasury needs at least ${formatUsdtBaseUnits(budgetUnits)} for this sandbox.`)
-      output.error("Add USD₮ to the treasury address shown by 'ration setup', then try again.")
+    const treasuryBalance = balanceBaseUnits(await getBalance(TREASURY_NAME, NETWORK))
+    output.log(`Creating persistent debug sandbox '${name}'...`)
+    await create(name)
+    locks.add(name)
+    await unlock(name)
+    address = (await getAddress(name, NETWORK)).address
+
+    const transferInput = {
+      sourceWallet: TREASURY_NAME,
+      network: NETWORK,
+      to: address,
+      amount: budget,
+      dryRun: true
+    }
+    const preview = await transfer(transferInput)
+    const fee = paymasterTokenFee(preview)
+    if (fee === null) {
+      output.error('WDK did not return a valid USD₮ gas quote. Nothing was broadcast.')
+      exitCode = 1
+    } else if (fee >= paymaster.transferMaxFee) {
+      const limit = formatUsdtBaseUnits(paymaster.transferMaxFee)
+      output.error(`The estimated gas fee ${formatUsdtBaseUnits(fee)} exceeds the WDK safety limit of ${limit}.`)
+      output.error('Nothing was broadcast.')
       exitCode = 1
     } else {
-      output.log(`Creating sandbox '${name}'...`)
-      await create(name)
-      locks.add(name)
-      await unlock(name)
-      address = (await getAddress(name, NETWORK)).address
+      const total = budgetUnits + fee
+      output.log('')
+      output.log('Sandbox funding preview')
+      output.log(`  Sandbox      ${name}`)
+      output.log(`  Address      ${address}`)
+      output.log(`  Budget       ${formatUsdtBaseUnits(budgetUnits)}`)
+      output.log(`  Network fee  ${formatUsdtBaseUnits(fee)}`)
+      output.log(`  Total        ${formatUsdtBaseUnits(total)}`)
+      output.log('')
 
-      const transferInput = {
-        sourceWallet: TREASURY_NAME,
-        network: NETWORK,
-        to: address,
-        amount: budget,
-        dryRun: true
-      }
-      const preview = await transfer(transferInput)
-      const fee = paymasterTokenFee(preview)
-      if (fee === null) {
-        output.error('WDK did not return a valid USD₮ gas quote. Nothing was broadcast.')
+      if (treasuryBalance < total) {
+        output.error(`Insufficient treasury funds: available ${formatUsdtBaseUnits(treasuryBalance)}, required ${formatUsdtBaseUnits(total)}.`)
+        output.error("Add USD₮ to the treasury address shown by 'ration setup', then try again.")
         exitCode = 1
-      } else if (fee >= paymaster.transferMaxFee) {
-        const limit = formatUsdtBaseUnits(paymaster.transferMaxFee)
-        output.error(`The estimated gas fee ${formatUsdtBaseUnits(fee)} exceeds the WDK safety limit of ${limit}.`)
-        output.error('Nothing was broadcast.')
-        exitCode = 1
+      } else if (await confirm() !== true) {
+        cancelled = true
       } else {
-        output.log('')
-        output.log('Sandbox funding preview')
-        output.log(`  Sandbox       ${name}`)
-        output.log(`  Address       ${address}`)
-        output.log(`  Budget        ${formatUsdtBaseUnits(budgetUnits)}`)
-        output.log(`  Estimated fee ${formatUsdtBaseUnits(fee)}`)
-        output.log('')
-
-        if (await confirm() !== true) cancelled = true
-        else result = await transfer({ ...transferInput, dryRun: false })
+        result = await transfer({ ...transferInput, dryRun: false })
       }
     }
   } catch (error) {
@@ -132,7 +135,7 @@ export async function createCommand (args, options, output) {
     return 0
   }
 
-  output.log('Sandbox created')
+  output.log('Persistent debug sandbox created')
   output.log(`  Sandbox   ${name}`)
   output.log(`  Address   ${address}`)
   output.log(`  Balance   ${formatUsdtBaseUnits(budgetUnits)}`)

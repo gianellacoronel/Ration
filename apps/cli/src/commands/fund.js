@@ -1,9 +1,20 @@
 import { NETWORK, SETUP_REQUIRED, TREASURY_NAME } from '../config.js'
-import { formatUsdtBaseUnits, isRationWalletName, isTreasuryConfigured, parseUsdt } from '../domain.js'
+import {
+  balanceBaseUnits,
+  formatUsdtBaseUnits,
+  isRationWalletName,
+  isTreasuryConfigured,
+  parseUsdt
+} from '../domain.js'
 import { WalletTransferError, WdkCliUnavailableError } from '../errors.js'
 import { confirmTransfer } from '../prompts.js'
 import { paymasterTokenFee } from '../paymaster.js'
-import { runWdkGetAddress, runWdkTransfer, runWdkWalletUnlock } from '../wdk.js'
+import {
+  runWdkGetAddress,
+  runWdkGetUsdtBalance,
+  runWdkTransfer,
+  runWdkWalletUnlock
+} from '../wdk.js'
 import {
   loadWallets,
   lockWallets,
@@ -43,6 +54,7 @@ export async function fundCommand (args, options, output) {
 
   const unlock = options.runWdkWalletUnlock ?? runWdkWalletUnlock
   const getAddress = options.runWdkGetAddress ?? runWdkGetAddress
+  const getBalance = options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance
   const transfer = options.runWdkTransfer ?? runWdkTransfer
   const confirm = options.confirmTransfer ?? confirmTransfer
   const locks = new Set([TREASURY_NAME, name])
@@ -54,6 +66,7 @@ export async function fundCommand (args, options, output) {
     const treasury = wallets.find((wallet) => wallet.name === TREASURY_NAME)
     if (!treasury.unlocked) await unlock(TREASURY_NAME)
     if (!sandbox.unlocked) await unlock(name)
+    const treasuryBalance = balanceBaseUnits(await getBalance(TREASURY_NAME, NETWORK))
     const address = (await getAddress(name, NETWORK)).address
     const input = {
       sourceWallet: TREASURY_NAME,
@@ -73,11 +86,17 @@ export async function fundCommand (args, options, output) {
       output.error('Nothing was broadcast.')
       exitCode = 1
     } else {
+      const total = amountUnits + fee
       output.log('Sandbox funding preview')
       output.log(`  Sandbox       ${name}`)
-      output.log(`  Amount        ${formatUsdtBaseUnits(amountUnits)}`)
-      output.log(`  Estimated fee ${formatUsdtBaseUnits(fee)}`)
-      if (await confirm() !== true) cancelled = true
+      output.log(`  Budget        ${formatUsdtBaseUnits(amountUnits)}`)
+      output.log(`  Network fee   ${formatUsdtBaseUnits(fee)}`)
+      output.log(`  Total         ${formatUsdtBaseUnits(total)}`)
+      if (treasuryBalance < total) {
+        output.error(`Insufficient treasury funds: available ${formatUsdtBaseUnits(treasuryBalance)}, required ${formatUsdtBaseUnits(total)}.`)
+        output.error("Add USD₮ to the treasury address shown by 'ration setup', then try again.")
+        exitCode = 1
+      } else if (await confirm() !== true) cancelled = true
       else result = await transfer({ ...input, dryRun: false })
     }
   } catch (error) {

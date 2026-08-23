@@ -1,30 +1,38 @@
-import { MAX_SESSION_TTL_MINUTES, NETWORK, SETUP_REQUIRED } from '../config.js'
-import { balanceBaseUnits, formatUsdtBaseUnits, isRationWalletName, isTreasuryConfigured } from '../domain.js'
-import { CommandLaunchError, WdkCliUnavailableError } from '../errors.js'
+import { NETWORK, SETUP_REQUIRED, TREASURY_NAME } from '../config.js'
+import { balanceBaseUnits, formatUsdtBaseUnits, isTreasuryConfigured, parseUsdt } from '../domain.js'
+import { CommandLaunchError, WalletTransferError, WdkCliUnavailableError } from '../errors.js'
+import { paymasterTokenFee } from '../paymaster.js'
 import { childExitCode, runRequestedCommand } from '../processes.js'
-import { runWdkGetUsdtBalance, runWdkWalletUnlock } from '../wdk.js'
+import { confirmTransfer } from '../prompts.js'
+import { createEphemeralSandbox, waitForSandboxFunding } from '../sandbox.js'
+import {
+  runWdkGetAddress,
+  runWdkGetUsdtBalance,
+  runWdkTransfer,
+  runWdkWalletUnlock
+} from '../wdk.js'
 import {
   loadWallets,
-  lockAllWallets,
+  lockWallets,
   operationExitCode,
   printWalletError,
   requirePaymasterTokenMode,
-  unavailableMessage
+  transferFailureMessage
 } from './shared.js'
 
 function parseRunArgs (args) {
-  if (args.length < 6 || args[0] !== 'run' || !args[1] ||
-    args[2] !== '--ttl' || !/^\d+$/.test(args[3]) || args[4] !== '--' || !args[5]) return null
+  if (args.length < 5 || args[0] !== 'run' || args[1] !== '--budget' ||
+    !args[2] || args[2].startsWith('--') || args[3] !== '--' || !args[4]) return null
 
-  const ttl = Number(args[3])
-  if (!Number.isSafeInteger(ttl) || ttl <= 0 || ttl > MAX_SESSION_TTL_MINUTES) return null
-  return { name: args[1], ttl, command: args[5], commandArgs: args.slice(6) }
+  const budget = parseUsdt(args[2])
+  if (budget === null) return null
+  return { budgetText: args[2], budget, command: args[4], commandArgs: args.slice(5) }
 }
 
 export async function runCommand (args, options, output) {
   const input = parseRunArgs(args)
   if (!input) {
-    output.error('Usage: ration run <sandbox> --ttl <minutes> -- <command> [args...]')
+    output.error('Usage: ration run --budget <amount> -- <command> [args...]')
     return 1
   }
 
@@ -34,59 +42,125 @@ export async function runCommand (args, options, output) {
     output.error(SETUP_REQUIRED)
     return 1
   }
-  if (!wallets.some((wallet) => wallet.name === input.name && isRationWalletName(wallet.name))) {
-    output.error(`Sandbox '${input.name}' was not found.`)
-    return 1
-  }
-  if (!(await requirePaymasterTokenMode(options, output))) return 1
+  const paymaster = await requirePaymasterTokenMode(options, output)
+  if (!paymaster) return 1
 
-  const initialLock = await lockAllWallets(options, output, undefined, 'preparation')
-  if (!initialLock.allLocked) return 1
-
+  const createSandbox = options.createEphemeralSandbox ?? createEphemeralSandbox
+  const awaitFunding = options.waitForSandboxFunding ?? waitForSandboxFunding
   const unlock = options.runWdkWalletUnlock ?? runWdkWalletUnlock
-  const getBalance = options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance
+  const getAddress = options.runWdkGetAddress ?? runWdkGetAddress
+  const getTreasuryBalance = options.runWdkGetUsdtBalance ?? runWdkGetUsdtBalance
+  const transfer = options.runWdkTransfer ?? runWdkTransfer
+  const confirm = options.confirmTransfer ?? confirmTransfer
   const execute = options.runRequestedCommand ?? runRequestedCommand
+  let sandbox
+  let treasuryAddress
   let initialBalance
   let finalBalance
-  let result
+  let swept = 0n
   let commandAttempted = false
   let exitCode = 0
+  let treasuryOpen = false
 
   try {
-    await unlock(input.name, { ttl: input.ttl })
-    initialBalance = balanceBaseUnits(await getBalance(input.name, NETWORK))
-    if (initialBalance <= 0n) {
-      output.error(`Sandbox '${input.name}' is not funded.`)
+    sandbox = await createSandbox(paymaster.walletConfig)
+    const treasury = wallets.find((wallet) => wallet.name === TREASURY_NAME)
+    if (!treasury.unlocked) {
+      await unlock(TREASURY_NAME)
+    }
+    treasuryOpen = true
+    treasuryAddress = (await getAddress(TREASURY_NAME, NETWORK)).address
+    const treasuryBalance = balanceBaseUnits(await getTreasuryBalance(TREASURY_NAME, NETWORK))
+    const transferInput = {
+      sourceWallet: TREASURY_NAME,
+      network: NETWORK,
+      to: sandbox.address,
+      amount: input.budgetText,
+      dryRun: true
+    }
+    const preview = await transfer(transferInput)
+    const fee = paymasterTokenFee(preview)
+    if (fee === null) {
+      output.error('WDK did not return a valid USD₮ gas quote. Nothing was broadcast.')
+      exitCode = 1
+    } else if (fee >= paymaster.transferMaxFee) {
+      output.error(`The estimated network fee ${formatUsdtBaseUnits(fee)} exceeds the WDK safety limit of ${formatUsdtBaseUnits(paymaster.transferMaxFee)}.`)
+      output.error('Nothing was broadcast.')
       exitCode = 1
     } else {
-      output.log('Ration')
+      const total = input.budget + fee
+      output.log('Sandbox funding')
       output.log('')
-      output.log(`Sandbox   ${input.name}`)
-      output.log(`Budget    ${formatUsdtBaseUnits(initialBalance)}`)
-      output.log(`TTL       ${input.ttl}m`)
-      output.log('Gas       paid from sandbox in USD₮')
+      output.log(`Budget       ${formatUsdtBaseUnits(input.budget)}`)
+      output.log(`Network fee  ${formatUsdtBaseUnits(fee)}`)
+      output.log(`Total        ${formatUsdtBaseUnits(total)}`)
       output.log('')
-      output.log(`Starting ${input.command}...`)
-      commandAttempted = true
-      result = await execute(input.command, input.commandArgs)
-      exitCode = childExitCode(result)
+
+      if (treasuryBalance < total) {
+        output.error(`Insufficient treasury funds: available ${formatUsdtBaseUnits(treasuryBalance)}, required ${formatUsdtBaseUnits(total)}.`)
+        output.error("Add USD₮ to the treasury address shown by 'ration setup', then try again.")
+        exitCode = 1
+      } else if (await confirm() !== true) {
+        output.log('Session cancelled. Nothing was broadcast.')
+      } else {
+        await transfer({ ...transferInput, dryRun: false })
+        if (!(await lockWallets(new Set([TREASURY_NAME]), options, output))) {
+          exitCode = 1
+        } else {
+          treasuryOpen = false
+          initialBalance = await awaitFunding(sandbox, input.budget)
+          output.log('Ration')
+          output.log('')
+          output.log(`Sandbox   ${sandbox.address}`)
+          output.log(`Budget    ${formatUsdtBaseUnits(initialBalance)}`)
+          output.log('Gas       paid from sandbox in USD₮')
+          output.log('Access    restricted WDK MCP not connected yet')
+          output.log('')
+          output.log(`Starting ${input.command}...`)
+          commandAttempted = true
+          const result = await execute(input.command, input.commandArgs)
+          exitCode = childExitCode(result)
+        }
+      }
     }
   } catch (error) {
     exitCode = operationExitCode(error)
     if (error instanceof CommandLaunchError) output.error(error.message)
-    else printWalletError(error, output, `Sandbox '${input.name}'`)
+    else if (error instanceof WalletTransferError || error instanceof WdkCliUnavailableError) {
+      transferFailureMessage(error, input.budgetText, output)
+    } else if (!sandbox) {
+      output.error('Could not create the in-memory WDK sandbox.')
+    } else {
+      printWalletError(error, output, treasuryOpen ? 'Treasury' : 'Sandbox')
+    }
   } finally {
-    if (initialBalance !== undefined && commandAttempted) {
+    if (treasuryOpen && !(await lockWallets(new Set([TREASURY_NAME]), options, output))) exitCode = 1
+
+    if (sandbox && initialBalance !== undefined) {
       try {
-        finalBalance = balanceBaseUnits(await getBalance(input.name, NETWORK))
-      } catch (error) {
-        if (error instanceof WdkCliUnavailableError) unavailableMessage(output)
-        else output.error('Could not read the final sandbox balance through WDK.')
+        finalBalance = await sandbox.getBalance()
+        if (finalBalance > 0n) {
+          const sweep = await sandbox.sweep(treasuryAddress)
+          swept = sweep.amount
+          if (swept === 0n) {
+            output.error(`The remaining ${formatUsdtBaseUnits(finalBalance)} could not cover its sweep fee.`)
+            exitCode = 1
+          }
+        }
+      } catch {
+        output.error('Security cleanup failed: the sandbox remainder could not be swept to the treasury.')
+        exitCode = 1
       }
     }
 
-    const lockResult = await lockAllWallets(options, output, input.name)
-    if (!lockResult.allLocked) exitCode = 1
+    if (sandbox) {
+      try {
+        sandbox.dispose()
+      } catch {
+        output.error('Security cleanup failed: the ephemeral WDK sandbox could not be disposed.')
+        exitCode = 1
+      }
+    }
 
     if (commandAttempted) {
       output.log('')
@@ -94,13 +168,13 @@ export async function runCommand (args, options, output) {
       output.log('')
       if (finalBalance === undefined) {
         output.log('Spent      unavailable')
-        output.log('Remaining  unavailable')
+        output.log('Returned   unavailable')
       } else {
         const spent = initialBalance >= finalBalance ? initialBalance - finalBalance : 0n
         output.log(`Spent      ${formatUsdtBaseUnits(spent)}`)
-        output.log(`Remaining  ${formatUsdtBaseUnits(finalBalance)}`)
+        output.log(`Returned   ${formatUsdtBaseUnits(swept)}`)
       }
-      output.log(`Sandbox    ${lockResult.sandboxLocked ? 'locked' : 'lock failed'}`)
+      output.log('Sandbox    disposed')
     }
   }
 

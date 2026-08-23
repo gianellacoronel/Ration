@@ -13,7 +13,7 @@ export function HowItWorks() {
       <div className="mx-auto max-w-content">
         <div className="grid gap-8 tablet:grid-cols-[1fr_auto] tablet:items-end">
           <div>
-            <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">Operation manual / 01-04</p>
+            <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">Operation manual</p>
             <h2 id="how-title" className="display-type max-w-[11ch] text-[clamp(3rem,7vw,6.5rem)] leading-[0.86]">Money in. Process out.</h2>
           </div>
           <p className="max-w-xs border-l pl-5 text-sm leading-6 text-muted">Four explicit actions. No ambient wallet access. No hidden custody.</p>

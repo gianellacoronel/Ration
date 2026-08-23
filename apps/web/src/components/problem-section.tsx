@@ -26,8 +26,7 @@ export function ProblemSection() {
   return (
     <section id="product" className="border-b px-gutter py-section" aria-labelledby="problem-title">
       <div className="mx-auto max-w-content">
-        <p className="mb-6 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-ration-orange">Problem / access model</p>
-        <h2 id="problem-title" className="display-type max-w-[12ch] text-[clamp(2.8rem,7.5vw,6.8rem)] leading-[0.86] text-foreground">
+        <h2 id="problem-title" className="display-type max-w-max text-[clamp(2.8rem,7.5vw,6.8rem)] leading-[0.86] text-foreground">
           Your wallet shouldn&apos;t be your process&apos;s wallet.
         </h2>
 
